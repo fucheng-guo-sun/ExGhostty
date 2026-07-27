@@ -165,7 +165,10 @@ actor SFTPService {
         task: SFTPTask
     ) async throws {
         let name = (remotePath as NSString).lastPathComponent
-        let archiveName = "\(name).tar.gz"
+        // 压缩包名不能带目录名：目录名含冒号时 GNU tar 会把 `-f` 参数
+        // 误判为 host:path 远程语法而失败，而 busybox tar 又不支持
+        // --force-local。与上传一致使用随机名，兼容所有 tar 实现。
+        let archiveName = "ghostty_download_\(UUID().uuidString).tar.gz"
         let remoteArchive = (remotePath as NSString).deletingLastPathComponent + "/" + archiveName
         let localArchive = localDirectory.appendingPathComponent(archiveName)
 
