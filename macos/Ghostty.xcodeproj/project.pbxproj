@@ -746,6 +746,7 @@
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "A program running within Ghostty would like to access your Calendar.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "A program running within Ghostty would like to use the camera.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "A program running within Ghostty would like to access your Contacts.";
+				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "A program running within Ghostty would like to save files to your Downloads folder.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "A program running within Ghostty would like to access the local network.";
 				INFOPLIST_KEY_NSLocationTemporaryUsageDescriptionDictionary = "A program running within Ghostty would like to use your location temporarily.";
@@ -763,7 +764,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				"OTHER_LDFLAGS[arch=*]" = "-lstdc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.xjai.exghostty;
 				PRODUCT_MODULE_NAME = Ghostty;
@@ -860,7 +861,7 @@
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.xjai.exghostty-dock-tile";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -889,7 +890,7 @@
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.xjai.exghostty-dock-tile";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -918,7 +919,7 @@
 				INSTALL_PATH = "$(LOCAL_LIBRARY_DIR)/Bundles";
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.xjai.exghostty-dock-tile";
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -1126,7 +1127,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = GhosttyDebug.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1145,6 +1146,7 @@
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "A program running within Ghostty would like to access your Calendar.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "A program running within Ghostty would like to use the camera.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "A program running within Ghostty would like to access your Contacts.";
+				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "A program running within Ghostty would like to save files to your Downloads folder.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "A program running within Ghostty would like to access the local network.";
 				INFOPLIST_KEY_NSLocationTemporaryUsageDescriptionDictionary = "A program running within Ghostty would like to use your location temporarily.";
@@ -1162,7 +1164,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				"OTHER_LDFLAGS[arch=*]" = "-lstdc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.xjai.exghostty;
 				PRODUCT_MODULE_NAME = Ghostty;
@@ -1182,7 +1184,7 @@
 				ASSETCATALOG_COMPILER_INCLUDE_ALL_APPICON_ASSETS = NO;
 				CLANG_ENABLE_MODULES = YES;
 				CODE_SIGN_ENTITLEMENTS = Ghostty.entitlements;
-				"CODE_SIGN_IDENTITY[sdk=macosx*]" = "-";
+				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -1201,6 +1203,7 @@
 				INFOPLIST_KEY_NSCalendarsUsageDescription = "A program running within Ghostty would like to access your Calendar.";
 				INFOPLIST_KEY_NSCameraUsageDescription = "A program running within Ghostty would like to use the camera.";
 				INFOPLIST_KEY_NSContactsUsageDescription = "A program running within Ghostty would like to access your Contacts.";
+				INFOPLIST_KEY_NSDownloadsFolderUsageDescription = "A program running within Ghostty would like to save files to your Downloads folder.";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSLocalNetworkUsageDescription = "A program running within Ghostty would like to access the local network.";
 				INFOPLIST_KEY_NSLocationTemporaryUsageDescriptionDictionary = "A program running within Ghostty would like to use your location temporarily.";
@@ -1218,7 +1221,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 13.0;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				"OTHER_LDFLAGS[arch=*]" = "-lstdc++";
 				PRODUCT_BUNDLE_IDENTIFIER = com.xjai.exghostty;
 				PRODUCT_MODULE_NAME = Ghostty;
@@ -1256,7 +1259,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				"OTHER_LDFLAGS[arch=*]" = "-lstdc++";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.mitchellh.ghostty-ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1295,7 +1298,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				"OTHER_LDFLAGS[arch=*]" = "-lstdc++";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.mitchellh.ghostty-ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -1334,7 +1337,7 @@
 					"@executable_path/Frameworks",
 				);
 				LOCALIZATION_PREFERS_STRING_CATALOGS = YES;
-				MARKETING_VERSION = 0.1.5;
+				MARKETING_VERSION = 0.1.6;
 				"OTHER_LDFLAGS[arch=*]" = "-lstdc++";
 				PRODUCT_BUNDLE_IDENTIFIER = "com.xjai.exghostty-ios";
 				PRODUCT_NAME = "$(TARGET_NAME)";

@@ -2392,7 +2392,7 @@ keybind: Keybinds = .{},
 
 /// Whether to allow programs running in the terminal to read/write to the
 /// system clipboard (OSC 52, for googling). The default is to allow clipboard
-/// reading after prompting the user and allow writing unconditionally.
+/// reading and writing unconditionally.
 ///
 /// Valid values are:
 ///
@@ -2400,7 +2400,7 @@ keybind: Keybinds = .{},
 ///   * `allow`
 ///   * `deny`
 ///
-@"clipboard-read": ClipboardAccess = .ask,
+@"clipboard-read": ClipboardAccess = .allow,
 @"clipboard-write": ClipboardAccess = .allow,
 
 /// Trims trailing whitespace on data that is copied to the clipboard. This does
