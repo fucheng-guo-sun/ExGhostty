@@ -1093,7 +1093,26 @@ class TerminalController: BaseTerminalController, TabGroupCloseCoordinator.Contr
         // SwiftUI focus chain.
         splitVC.initialContentSize = focusedSurface?.initialSize
 
+        // BUGFIX: The sidebar split view is created with a zero frame.
+        // Assigning it as the window's contentViewController causes AppKit
+        // to resize the window to the view's (zero) fitting size, which
+        // collapses the window to an invisible 1x32 titlebar sliver.
+        // Preserve the window frame across the assignment and fall back to
+        // a sane centered default if the frame was never valid.
+        let priorFrame = window.frame
         window.contentViewController = splitVC
+        if window.frame.width < 320 || window.frame.height < 240 {
+            if priorFrame.width >= 320 && priorFrame.height >= 240 {
+                window.setFrame(priorFrame, display: true)
+            } else if let screen = window.screen ?? NSScreen.main {
+                let size = NSSize(width: 1273, height: 817)
+                let vf = screen.visibleFrame
+                let origin = NSPoint(
+                    x: vf.midX - size.width / 2,
+                    y: vf.midY - size.height / 2)
+                window.setFrame(NSRect(origin: origin, size: size), display: true)
+            }
+        }
 
         // 侧边栏模式：允许标签组（新终端作为标签页打开）
         // 原生标签栏已在 TerminalWindow.addTitlebarAccessoryViewController 中隐藏
