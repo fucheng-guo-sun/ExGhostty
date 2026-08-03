@@ -156,10 +156,16 @@ final class DockerService: ObservableObject, @unchecked Sendable {
         return try await run("docker inspect --format '\(template)' \(Self.shellQuote(id))")
     }
 
-    /// 获取容器启动命令（实际执行的入口路径与参数）。
-    func containerStartCommand(id: String) async throws -> String {
-        let template = "{{.Path}} {{join .Args \" \"}}"
-        return try await run("docker inspect --format '\(template)' \(Self.shellQuote(id))")
+    /// 重建容器的 `docker run` 启动命令（基于 `docker inspect` 的配置，类似 runlike）。
+    /// 覆盖：名称、重启策略、网络、特权、端口映射、环境变量、挂载、entrypoint 与 cmd。
+    func containerRunCommand(id: String) async throws -> String {
+        let output = try await run("docker inspect \(Self.shellQuote(id))")
+        guard let data = output.data(using: .utf8),
+              let list = try? JSONDecoder().decode([ContainerInspection].self, from: data),
+              let inspection = list.first else {
+            return ""
+        }
+        return Self.buildRunCommand(inspection)
     }
 
     // MARK: - 内部辅助
@@ -209,6 +215,372 @@ final class DockerService: ObservableObject, @unchecked Sendable {
     /// 把任意值包裹为 shell 单引号字符串，内部的单引号转义为 `'\''`。
     private static func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
+    }
+
+    /// 仅当值包含 shell 特殊字符时才加单引号，保持生成的 docker run 命令简洁可读。
+    private static func shellQuoteIfNeeded(_ value: String) -> String {
+        let safe = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_./:=@%,+-")
+        return value.unicodeScalars.allSatisfy { safe.contains($0) } ? value : shellQuote(value)
+    }
+
+    // MARK: - docker run 命令重建
+
+    /// `docker inspect` 输出的容器配置（取重建 docker run 所需的字段）。
+    private struct ContainerInspection: Decodable {
+        struct Config: Decodable {
+            let Image: String?
+            let Env: [String]?
+            let Cmd: StringList?
+            let Entrypoint: StringList?
+            let Hostname: String?
+            let Domainname: String?
+            let User: String?
+            let ExposedPorts: [String: [String: String]]?
+            let WorkingDir: String?
+            let Labels: [String: String]?
+            let OpenStdin: Bool?
+            let Tty: Bool?
+            let StopSignal: String?
+            let MacAddress: String?
+        }
+        struct HostConfig: Decodable {
+            let RestartPolicy: RestartPolicy?
+            let NetworkMode: String?
+            let Privileged: Bool?
+            let PortBindings: [String: [PortBinding]]?
+            let PublishAllPorts: Bool?
+            let Dns: [String]?
+            let DnsOptions: [String]?
+            let DnsSearch: [String]?
+            let ExtraHosts: [String]?
+            let Links: [String]?
+            let CapAdd: [String]?
+            let CapDrop: [String]?
+            let Devices: [Device]?
+            let DeviceCgroupRules: [String]?
+            let SecurityOpt: [String]?
+            let Ulimits: [Ulimit]?
+            let Sysctls: [String: String]?
+            let Memory: Int64?
+            let MemorySwap: Int64?
+            let MemoryReservation: Int64?
+            let NanoCPUs: Int64?
+            let CpuQuota: Int64?
+            let CpuPeriod: Int64?
+            let CpusetCpus: String?
+            let BlkioWeight: Int?
+            let PidsLimit: Int64?
+            let ShmSize: Int64?
+            let OomKillDisable: Bool?
+            let ReadonlyRootfs: Bool?
+            let Tmpfs: [String: String]?
+            let LogConfig: LogConfig?
+            let Runtime: String?
+            let GroupAdd: [String]?
+            let IpcMode: String?
+            let PidMode: String?
+            let UTSMode: String?
+            let CgroupnsMode: String?
+            let UsernsMode: String?
+            let VolumesFrom: [String]?
+            let AutoRemove: Bool?
+            let Init: Bool?
+            let Isolation: String?
+            let CgroupParent: String?
+        }
+        struct RestartPolicy: Decodable {
+            let Name: String?
+        }
+        struct PortBinding: Decodable {
+            let HostIp: String?
+            let HostPort: String?
+        }
+        struct Device: Decodable {
+            let PathOnHost: String?
+            let PathInContainer: String?
+            let CgroupPermissions: String?
+        }
+        struct Ulimit: Decodable {
+            let Name: String?
+            let Soft: Int64?
+            let Hard: Int64?
+        }
+        struct LogConfig: Decodable {
+            let `Type`: String?
+            let Config: [String: String]?
+        }
+        struct Mount: Decodable {
+            let `Type`: String?
+            let Name: String?
+            let Source: String?
+            let Destination: String?
+            let RW: Bool?
+        }
+        let Id: String?
+        let Name: String?
+        let Config: Config?
+        let HostConfig: HostConfig?
+        let Mounts: [Mount]?
+    }
+
+    /// 兼容字符串 / 字符串数组两种 JSON 形式（不同 Docker 版本的 Cmd、Entrypoint 类型不一致）。
+    private struct StringList: Decodable {
+        let values: [String]
+
+        init(from decoder: Decoder) throws {
+            let container = try decoder.singleValueContainer()
+            if let array = try? container.decode([String].self) {
+                values = array
+            } else if let string = try? container.decode(String.self) {
+                values = string.isEmpty ? [] : [string]
+            } else {
+                values = []
+            }
+        }
+    }
+
+    /// 把容器配置重建为一条可直接复制执行的 `docker run` 命令。
+    private static func buildRunCommand(_ inspection: ContainerInspection) -> String {
+        var parts: [String] = ["docker", "run", "-d"]
+        let config = inspection.Config
+        let hostConfig = inspection.HostConfig
+
+        // 基本
+        if let name = inspection.Name?.drop(while: { $0 == "/" }), !name.isEmpty {
+            parts += ["--name", shellQuoteIfNeeded(String(name))]
+        }
+        if hostConfig?.AutoRemove == true {
+            parts.append("--rm")
+        }
+        if let policy = hostConfig?.RestartPolicy?.Name, !policy.isEmpty, policy != "no" {
+            parts += ["--restart", policy]
+        }
+
+        // 网络
+        if let network = hostConfig?.NetworkMode, !network.isEmpty, network != "default" {
+            parts += ["--network", network]
+        }
+        // 未显式设置 hostname 时，Docker 默认用容器短 ID 作为 hostname，不应重建进命令。
+        if let hostname = config?.Hostname, !hostname.isEmpty,
+           !(inspection.Id?.hasPrefix(hostname) ?? false) {
+            parts += ["--hostname", shellQuoteIfNeeded(hostname)]
+        }
+        if let domainname = config?.Domainname, !domainname.isEmpty {
+            parts += ["--domainname", shellQuoteIfNeeded(domainname)]
+        }
+        for dns in hostConfig?.Dns ?? [] {
+            parts += ["--dns", dns]
+        }
+        for option in hostConfig?.DnsOptions ?? [] {
+            parts += ["--dns-option", shellQuoteIfNeeded(option)]
+        }
+        for search in hostConfig?.DnsSearch ?? [] {
+            parts += ["--dns-search", shellQuoteIfNeeded(search)]
+        }
+        for host in hostConfig?.ExtraHosts ?? [] {
+            parts += ["--add-host", shellQuoteIfNeeded(host)]
+        }
+        for link in hostConfig?.Links ?? [] {
+            parts += ["--link", shellQuoteIfNeeded(link)]
+        }
+        if let mac = config?.MacAddress, !mac.isEmpty {
+            parts += ["--mac-address", mac]
+        }
+
+        // 端口
+        let portBindings = hostConfig?.PortBindings ?? [:]
+        for (containerPort, bindings) in portBindings.sorted(by: { $0.key < $1.key }) {
+            for binding in bindings {
+                var mapping = ""
+                if let ip = binding.HostIp, !ip.isEmpty, ip != "0.0.0.0", ip != "::" {
+                    mapping += "\(ip):"
+                }
+                if let hostPort = binding.HostPort, !hostPort.isEmpty {
+                    mapping += "\(hostPort):"
+                }
+                mapping += containerPort
+                parts += ["-p", shellQuoteIfNeeded(mapping)]
+            }
+        }
+        // 已发布的端口隐含 expose，不重复输出。
+        for exposed in (config?.ExposedPorts ?? [:]).keys.sorted() where portBindings[exposed] == nil {
+            parts += ["--expose", exposed]
+        }
+        if hostConfig?.PublishAllPorts == true {
+            parts.append("-P")
+        }
+
+        // 资源限制
+        if let memory = hostConfig?.Memory, memory > 0 {
+            parts += ["--memory", "\(memory)"]
+        }
+        if let memorySwap = hostConfig?.MemorySwap, memorySwap > 0 {
+            parts += ["--memory-swap", "\(memorySwap)"]
+        }
+        if let reservation = hostConfig?.MemoryReservation, reservation > 0 {
+            parts += ["--memory-reservation", "\(reservation)"]
+        }
+        if let nanoCPUs = hostConfig?.NanoCPUs, nanoCPUs > 0 {
+            parts += ["--cpus", formatCPUs(Double(nanoCPUs) / 1_000_000_000)]
+        } else if let quota = hostConfig?.CpuQuota, let period = hostConfig?.CpuPeriod, quota > 0, period > 0 {
+            parts += ["--cpus", formatCPUs(Double(quota) / Double(period))]
+        }
+        if let cpuset = hostConfig?.CpusetCpus, !cpuset.isEmpty {
+            parts += ["--cpuset-cpus", cpuset]
+        }
+        if let weight = hostConfig?.BlkioWeight, weight > 0 {
+            parts += ["--blkio-weight", "\(weight)"]
+        }
+        if let pidsLimit = hostConfig?.PidsLimit, pidsLimit > 0 {
+            parts += ["--pids-limit", "\(pidsLimit)"]
+        }
+        if let shmSize = hostConfig?.ShmSize, shmSize > 0 {
+            parts += ["--shm-size", "\(shmSize)"]
+        }
+        for ulimit in hostConfig?.Ulimits ?? [] {
+            guard let name = ulimit.Name, !name.isEmpty else { continue }
+            parts += ["--ulimit", "\(name)=\(ulimit.Soft ?? 0):\(ulimit.Hard ?? 0)"]
+        }
+
+        // 设备与权限
+        if hostConfig?.Privileged == true {
+            parts.append("--privileged")
+        }
+        for cap in hostConfig?.CapAdd ?? [] {
+            parts += ["--cap-add", cap]
+        }
+        for cap in hostConfig?.CapDrop ?? [] {
+            parts += ["--cap-drop", cap]
+        }
+        for device in hostConfig?.Devices ?? [] {
+            guard let onHost = device.PathOnHost, !onHost.isEmpty else { continue }
+            var value = onHost
+            if let inContainer = device.PathInContainer, !inContainer.isEmpty {
+                value += ":\(inContainer)"
+                if let permissions = device.CgroupPermissions, !permissions.isEmpty {
+                    value += ":\(permissions)"
+                }
+            }
+            parts += ["--device", shellQuoteIfNeeded(value)]
+        }
+        for rule in hostConfig?.DeviceCgroupRules ?? [] {
+            parts += ["--device-cgroup-rule", shellQuoteIfNeeded(rule)]
+        }
+        for opt in hostConfig?.SecurityOpt ?? [] {
+            parts += ["--security-opt", shellQuoteIfNeeded(opt)]
+        }
+        for (key, value) in (hostConfig?.Sysctls ?? [:]).sorted(by: { $0.key < $1.key }) {
+            parts += ["--sysctl", shellQuoteIfNeeded("\(key)=\(value)")]
+        }
+
+        // 存储
+        for mount in inspection.Mounts ?? [] {
+            guard let destination = mount.Destination, !destination.isEmpty else { continue }
+            var source = mount.Source ?? ""
+            if mount.Type == "volume", let name = mount.Name, !name.isEmpty {
+                source = name
+            }
+            guard !source.isEmpty else { continue }
+            var volume = "\(source):\(destination)"
+            if mount.RW == false { volume += ":ro" }
+            parts += ["-v", shellQuoteIfNeeded(volume)]
+        }
+        for from in hostConfig?.VolumesFrom ?? [] {
+            parts += ["--volumes-from", shellQuoteIfNeeded(from)]
+        }
+        for (destination, options) in (hostConfig?.Tmpfs ?? [:]).sorted(by: { $0.key < $1.key }) {
+            let value = options.isEmpty ? destination : "\(destination):\(options)"
+            parts += ["--tmpfs", shellQuoteIfNeeded(value)]
+        }
+        if hostConfig?.ReadonlyRootfs == true {
+            parts.append("--read-only")
+        }
+
+        // 命名空间与运行时
+        if let ipc = hostConfig?.IpcMode, !ipc.isEmpty, ipc != "private", ipc != "shareable" {
+            parts += ["--ipc", ipc]
+        }
+        if let pid = hostConfig?.PidMode, !pid.isEmpty {
+            parts += ["--pid", pid]
+        }
+        if let uts = hostConfig?.UTSMode, !uts.isEmpty {
+            parts += ["--uts", uts]
+        }
+        if let userns = hostConfig?.UsernsMode, !userns.isEmpty {
+            parts += ["--userns", userns]
+        }
+        if let cgroupns = hostConfig?.CgroupnsMode, !cgroupns.isEmpty, cgroupns != "private" {
+            parts += ["--cgroupns", cgroupns]
+        }
+        if let parent = hostConfig?.CgroupParent, !parent.isEmpty {
+            parts += ["--cgroup-parent", shellQuoteIfNeeded(parent)]
+        }
+        if let runtime = hostConfig?.Runtime, !runtime.isEmpty, runtime != "runc" {
+            parts += ["--runtime", runtime]
+        }
+        if let isolation = hostConfig?.Isolation, !isolation.isEmpty, isolation != "default" {
+            parts += ["--isolation", isolation]
+        }
+        if hostConfig?.Init == true {
+            parts.append("--init")
+        }
+        if hostConfig?.OomKillDisable == true {
+            parts.append("--oom-kill-disable")
+        }
+        if let signal = config?.StopSignal, !signal.isEmpty {
+            parts += ["--stop-signal", signal]
+        }
+
+        // 日志
+        if let driver = hostConfig?.LogConfig?.Type, !driver.isEmpty, driver != "json-file" {
+            parts += ["--log-driver", driver]
+        }
+        for (key, value) in (hostConfig?.LogConfig?.Config ?? [:]).sorted(by: { $0.key < $1.key }) {
+            parts += ["--log-opt", shellQuoteIfNeeded("\(key)=\(value)")]
+        }
+
+        // 进程与环境
+        for group in hostConfig?.GroupAdd ?? [] {
+            parts += ["--group-add", group]
+        }
+        if let user = config?.User, !user.isEmpty {
+            parts += ["--user", shellQuoteIfNeeded(user)]
+        }
+        if let workdir = config?.WorkingDir, !workdir.isEmpty {
+            parts += ["--workdir", shellQuoteIfNeeded(workdir)]
+        }
+        if config?.OpenStdin == true {
+            parts.append("-i")
+        }
+        if config?.Tty == true {
+            parts.append("-t")
+        }
+        for (key, value) in (config?.Labels ?? [:]).sorted(by: { $0.key < $1.key }) {
+            let label = value.isEmpty ? key : "\(key)=\(value)"
+            parts += ["--label", shellQuoteIfNeeded(label)]
+        }
+        for env in config?.Env ?? [] {
+            parts += ["-e", shellQuoteIfNeeded(env)]
+        }
+        if let entrypoint = config?.Entrypoint?.values, !entrypoint.isEmpty {
+            parts += ["--entrypoint", shellQuote(entrypoint.joined(separator: " "))]
+        }
+        parts.append(shellQuoteIfNeeded(config?.Image ?? ""))
+        for arg in config?.Cmd?.values ?? [] {
+            parts.append(shellQuoteIfNeeded(arg))
+        }
+        return parts.joined(separator: " ")
+    }
+
+    /// 格式化 --cpus 数值：整数值不带小数点，其余保留两位以内的小数。
+    private static func formatCPUs(_ value: Double) -> String {
+        if value == value.rounded() {
+            return "\(Int(value))"
+        }
+        var text = String(format: "%.2f", value)
+        while text.hasSuffix("0") { text.removeLast() }
+        if text.hasSuffix(".") { text.removeLast() }
+        return text
     }
 
     /// 逐行解析 `--format '{{json .}}'` 输出，无法解析的行直接忽略。

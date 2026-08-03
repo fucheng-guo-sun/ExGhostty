@@ -547,7 +547,7 @@ private struct DockerInfoSheet: View {
                 case .logs(let c):         text = try await store.containerLogs(id: c.id)
                 case .ports(let c):        text = try await store.containerPorts(id: c.id)
                 case .mounts(let c):       text = try await store.containerMounts(id: c.id)
-                case .startCommand(let c): text = try await store.containerStartCommand(id: c.id)
+                case .startCommand(let c): text = try await store.containerRunCommand(id: c.id)
                 }
             } catch {
                 text = error.localizedDescription
