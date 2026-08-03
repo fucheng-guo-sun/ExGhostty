@@ -27,6 +27,39 @@ private enum DockerTab: String, CaseIterable, Identifiable {
     }
 }
 
+/// 容器信息弹窗的种类。
+private enum DockerInfo: Identifiable {
+    case logs(DockerContainer)
+    case ports(DockerContainer)
+    case mounts(DockerContainer)
+    case startCommand(DockerContainer)
+
+    var id: String {
+        switch self {
+        case .logs(let c):         return "logs-\(c.id)"
+        case .ports(let c):        return "ports-\(c.id)"
+        case .mounts(let c):       return "mounts-\(c.id)"
+        case .startCommand(let c): return "cmd-\(c.id)"
+        }
+    }
+
+    var container: DockerContainer {
+        switch self {
+        case .logs(let c), .ports(let c), .mounts(let c), .startCommand(let c): return c
+        }
+    }
+
+    var title: String {
+        let name = container.names
+        switch self {
+        case .logs:         return L("Logs: %@", name)
+        case .ports:        return L("Ports: %@", name)
+        case .mounts:       return L("Mounts: %@", name)
+        case .startCommand: return L("Start Command: %@", name)
+        }
+    }
+}
+
 /// 右侧栏“Docker 管理”功能面板：本地终端管理本机 Docker，SSH 终端管理远程主机 Docker。
 struct DockerPanelView: View {
     let terminalController: TerminalController?
@@ -34,7 +67,7 @@ struct DockerPanelView: View {
     @StateObject private var store: DockerService
     @State private var state: DockerPanelState = .checking
     @State private var tab: DockerTab = .containers
-    @State private var logContainer: DockerContainer?
+    @State private var info: DockerInfo?
 
     init(terminalController: TerminalController?) {
         self.terminalController = terminalController
@@ -57,8 +90,8 @@ struct DockerPanelView: View {
         .onAppear {
             startService()
         }
-        .sheet(item: $logContainer) { container in
-            DockerLogsSheet(store: store, container: container)
+        .sheet(item: $info) { info in
+            DockerInfoSheet(store: store, info: info)
         }
     }
 
@@ -236,9 +269,6 @@ struct DockerPanelView: View {
             Spacer()
 
             HStack(spacing: 4) {
-                actionButton(icon: "doc.text", help: "View Logs".localized) {
-                    logContainer = container
-                }
                 if container.isRunning {
                     actionButton(icon: "stop.fill", help: "Stop".localized) {
                         performContainerAction(.stop, container: container)
@@ -258,6 +288,24 @@ struct DockerPanelView: View {
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button("View Logs".localized) { info = .logs(container) }
+            Button("View Ports".localized) { info = .ports(container) }
+            Button("View Mounts".localized) { info = .mounts(container) }
+            Button("View Start Command".localized) { info = .startCommand(container) }
+            Divider()
+            Button("Open Terminal in Container".localized) { execIntoContainer(container) }
+                .disabled(!container.isRunning)
+        }
+    }
+
+    /// 在当前终端里执行 `docker exec -it <id> sh` 进入容器；
+    /// SSH 终端的 surface 本身就是远程会话，命令自然在远程主机上执行。
+    private func execIntoContainer(_ container: DockerContainer) {
+        guard let surface = terminalController?.focusedSurface?.surfaceModel else { return }
+        surface.sendText("docker exec -it \(container.id) sh")
+        surface.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .press, text: "\r"))
     }
 
     // MARK: - 镜像列表
@@ -436,19 +484,20 @@ struct DockerPanelView: View {
     }
 }
 
-// MARK: - 容器日志弹窗
+// MARK: - 容器信息弹窗
 
-struct DockerLogsSheet: View {
+/// 通用容器信息弹窗：日志 / 端口 / 挂载点 / 启动命令。
+private struct DockerInfoSheet: View {
     let store: DockerService
-    let container: DockerContainer
+    let info: DockerInfo
 
     @Environment(\.dismiss) private var dismiss
-    @State private var logs: String = ""
+    @State private var output: String = ""
     @State private var isLoading = true
 
     var body: some View {
         VStack(spacing: 0) {
-            Text(L("Logs: %@", container.names))
+            Text(info.title)
                 .font(.system(size: 16, weight: .semibold))
                 .padding(.top, 16)
 
@@ -459,7 +508,7 @@ struct DockerLogsSheet: View {
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else {
                     ScrollView {
-                        Text(logs.isEmpty ? "No logs".localized : logs)
+                        Text(output.isEmpty ? "No output".localized : output)
                             .font(.system(size: 12, design: .monospaced))
                             .textSelection(.enabled)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -469,7 +518,7 @@ struct DockerLogsSheet: View {
             }
 
             HStack {
-                Button(action: loadLogs) {
+                Button(action: load) {
                     Image(systemName: "arrow.clockwise")
                         .font(.system(size: 12, weight: .medium))
                 }
@@ -486,15 +535,25 @@ struct DockerLogsSheet: View {
             .padding()
         }
         .frame(minWidth: 480, minHeight: 320)
-        .onAppear(perform: loadLogs)
+        .onAppear(perform: load)
     }
 
-    private func loadLogs() {
+    private func load() {
         isLoading = true
         Task {
-            let output = (try? await store.containerLogs(id: container.id)) ?? ""
+            let text: String
+            do {
+                switch info {
+                case .logs(let c):         text = try await store.containerLogs(id: c.id)
+                case .ports(let c):        text = try await store.containerPorts(id: c.id)
+                case .mounts(let c):       text = try await store.containerMounts(id: c.id)
+                case .startCommand(let c): text = try await store.containerStartCommand(id: c.id)
+                }
+            } catch {
+                text = error.localizedDescription
+            }
             await MainActor.run {
-                logs = output
+                output = text
                 isLoading = false
             }
         }

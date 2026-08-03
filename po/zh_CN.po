@@ -1403,8 +1403,8 @@ msgstr "删除"
 msgid "View Logs"
 msgstr "查看日志"
 
-msgid "No logs"
-msgstr "暂无日志"
+msgid "No output"
+msgstr "暂无输出"
 
 msgid "No containers"
 msgstr "无容器"
@@ -1444,3 +1444,24 @@ msgstr "确定要删除容器“%@”吗？"
 
 msgid "Are you sure you want to remove image \"%@:%@\"?"
 msgstr "确定要删除镜像“%@:%@”吗？"
+
+msgid "View Ports"
+msgstr "查看端口"
+
+msgid "View Mounts"
+msgstr "查看挂载点"
+
+msgid "View Start Command"
+msgstr "查看启动命令"
+
+msgid "Open Terminal in Container"
+msgstr "进入容器内终端"
+
+msgid "Ports: %@"
+msgstr "端口：%@"
+
+msgid "Mounts: %@"
+msgstr "挂载点：%@"
+
+msgid "Start Command: %@"
+msgstr "启动命令：%@"

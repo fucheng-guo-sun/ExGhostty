@@ -145,6 +145,23 @@ final class DockerService: ObservableObject, @unchecked Sendable {
         try await run("docker logs --tail \(tail) \(Self.shellQuote(id)) 2>&1")
     }
 
+    /// 获取容器端口映射（`docker port` 输出）。
+    func containerPorts(id: String) async throws -> String {
+        try await run("docker port \(Self.shellQuote(id))")
+    }
+
+    /// 获取容器挂载点列表（类型: 源 -> 目标，每行一条）。
+    func containerMounts(id: String) async throws -> String {
+        let template = "{{range .Mounts}}{{.Type}}: {{.Source}} -> {{.Destination}}{{\"\\n\"}}{{end}}"
+        return try await run("docker inspect --format '\(template)' \(Self.shellQuote(id))")
+    }
+
+    /// 获取容器启动命令（实际执行的入口路径与参数）。
+    func containerStartCommand(id: String) async throws -> String {
+        let template = "{{.Path}} {{join .Args \" \"}}"
+        return try await run("docker inspect --format '\(template)' \(Self.shellQuote(id))")
+    }
+
     // MARK: - 内部辅助
 
     private func run(_ command: String) async throws -> String {
