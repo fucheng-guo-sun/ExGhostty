@@ -1377,3 +1377,66 @@ msgstr "連線密碼（選填）"
 
 msgid "Some devices require a connection password before login."
 msgstr "部分裝置在登入前需要先輸入連線密碼。"
+
+msgid "Docker"
+msgstr "Docker 管理"
+
+msgid "Containers"
+msgstr "容器"
+
+msgid "Images"
+msgstr "映像"
+
+msgid "Start"
+msgstr "啟動"
+
+msgid "Restart"
+msgstr "重新啟動"
+
+msgid "Remove"
+msgstr "刪除"
+
+msgid "View Logs"
+msgstr "檢視日誌"
+
+msgid "No logs"
+msgstr "暫無日誌"
+
+msgid "No containers"
+msgstr "無容器"
+
+msgid "No images"
+msgstr "無映像"
+
+msgid "Docker not installed"
+msgstr "Docker未安裝"
+
+msgid "Volumes"
+msgstr "磁碟區"
+
+msgid "Networks"
+msgstr "網路"
+
+msgid "No volumes"
+msgstr "無磁碟區"
+
+msgid "No networks"
+msgstr "無網路"
+
+msgid "Docker Management requires the docker CLI to be installed"
+msgstr "Docker 管理功能需要安裝 docker 命令列工具"
+
+msgid "Remove Container"
+msgstr "刪除容器"
+
+msgid "Remove Image"
+msgstr "刪除映像"
+
+msgid "Logs: %@"
+msgstr "日誌：%@"
+
+msgid "Are you sure you want to remove container \"%@\"?"
+msgstr "確定要刪除容器「%@」嗎？"
+
+msgid "Are you sure you want to remove image \"%@:%@\"?"
+msgstr "確定要刪除映像「%@:%@」嗎？"

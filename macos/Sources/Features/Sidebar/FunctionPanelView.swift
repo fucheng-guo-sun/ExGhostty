@@ -36,6 +36,8 @@ struct FunctionPanelView: View {
             CodeSnippetPanelView(terminalController: terminalController)
         case .systemMonitor:
             SystemMonitorPanelView(terminalController: terminalController)
+        case .docker:
+            DockerPanelView(terminalController: terminalController)
         case .aiAssistant:
             AIAssistantPanelView(terminalController: terminalController)
         case .none:
