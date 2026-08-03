@@ -71,6 +71,8 @@ struct FunctionPanelView: View {
             .help("Close".localized)
         }
         .frame(height: 32)
-        .padding(.horizontal, 8)
+        // leading 稍大：面板左缘紧贴 split 分隔线，避免标题首字符被分隔线覆盖裁切。
+        .padding(.leading, 12)
+        .padding(.trailing, 8)
     }
 }

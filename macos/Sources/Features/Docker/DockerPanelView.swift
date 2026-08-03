@@ -265,9 +265,6 @@ struct DockerPanelView: View {
                         performContainerAction(.start, container: container)
                     }
                 }
-                actionButton(icon: "trash", help: "Remove".localized) {
-                    confirmRemoveContainer(container)
-                }
             }
         }
         .padding(.horizontal, 12)
@@ -280,6 +277,13 @@ struct DockerPanelView: View {
             Divider()
             Button("Open Terminal in Container".localized) { execIntoContainer(container) }
                 .disabled(!container.isRunning)
+            Divider()
+            Button(role: .destructive) {
+                confirmRemoveContainer(container)
+            } label: {
+                Text("Remove".localized)
+                    .foregroundColor(.red)
+            }
         }
     }
 
@@ -361,13 +365,18 @@ struct DockerPanelView: View {
             }
 
             Spacer()
-
-            actionButton(icon: "trash", help: "Remove".localized) {
-                confirmRemoveImage(image)
-            }
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 8)
+        .contentShape(Rectangle())
+        .contextMenu {
+            Button(role: .destructive) {
+                confirmRemoveImage(image)
+            } label: {
+                Text("Remove".localized)
+                    .foregroundColor(.red)
+            }
+        }
     }
 
     // MARK: - 卷列表
