@@ -27,39 +27,6 @@ private enum DockerTab: String, CaseIterable, Identifiable {
     }
 }
 
-/// 容器信息弹窗的种类。
-private enum DockerInfo: Identifiable {
-    case logs(DockerContainer)
-    case ports(DockerContainer)
-    case mounts(DockerContainer)
-    case startCommand(DockerContainer)
-
-    var id: String {
-        switch self {
-        case .logs(let c):         return "logs-\(c.id)"
-        case .ports(let c):        return "ports-\(c.id)"
-        case .mounts(let c):       return "mounts-\(c.id)"
-        case .startCommand(let c): return "cmd-\(c.id)"
-        }
-    }
-
-    var container: DockerContainer {
-        switch self {
-        case .logs(let c), .ports(let c), .mounts(let c), .startCommand(let c): return c
-        }
-    }
-
-    var title: String {
-        let name = container.names
-        switch self {
-        case .logs:         return L("Logs: %@", name)
-        case .ports:        return L("Ports: %@", name)
-        case .mounts:       return L("Mounts: %@", name)
-        case .startCommand: return L("Start Command: %@", name)
-        }
-    }
-}
-
 /// 右侧栏“Docker 管理”功能面板：本地终端管理本机 Docker，SSH 终端管理远程主机 Docker。
 struct DockerPanelView: View {
     let terminalController: TerminalController?
@@ -67,7 +34,6 @@ struct DockerPanelView: View {
     @StateObject private var store: DockerService
     @State private var state: DockerPanelState = .checking
     @State private var tab: DockerTab = .containers
-    @State private var info: DockerInfo?
 
     init(terminalController: TerminalController?) {
         self.terminalController = terminalController
@@ -89,9 +55,6 @@ struct DockerPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear {
             startService()
-        }
-        .sheet(item: $info) { info in
-            DockerInfoSheet(store: store, info: info)
         }
     }
 
@@ -264,6 +227,27 @@ struct DockerPanelView: View {
                     .font(.system(size: 11))
                     .foregroundColor(.secondary)
                     .lineLimit(1)
+                // 端口与挂载点一行一个完整展示，行高随数量自适应。
+                if !container.ports.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(container.ports, id: \.self) { port in
+                            Text(port)
+                                .font(.system(size: 11, design: .monospaced))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+                if !container.mounts.isEmpty {
+                    VStack(alignment: .leading, spacing: 2) {
+                        ForEach(container.mounts, id: \.self) { mount in
+                            Text(mount)
+                                .font(.system(size: 11))
+                                .foregroundColor(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
             }
 
             Spacer()
@@ -290,14 +274,53 @@ struct DockerPanelView: View {
         .padding(.vertical, 8)
         .contentShape(Rectangle())
         .contextMenu {
-            Button("View Logs".localized) { info = .logs(container) }
-            Button("View Ports".localized) { info = .ports(container) }
-            Button("View Mounts".localized) { info = .mounts(container) }
-            Button("View Start Command".localized) { info = .startCommand(container) }
+            Button("View Logs".localized) { showLogsWindow(container) }
+            Button("View Start Command".localized) { showRunCommandWindow(container) }
+            Button("Copy Info".localized) { copyContainerInfo(container) }
             Divider()
             Button("Open Terminal in Container".localized) { execIntoContainer(container) }
                 .disabled(!container.isRunning)
         }
+    }
+
+    /// 复制容器完整信息（名称、ID、镜像、状态、端口、挂载点）到剪贴板。
+    private func copyContainerInfo(_ container: DockerContainer) {
+        var lines: [String] = [
+            "\("Name".localized): \(container.names)",
+            "ID: \(container.id)",
+            "\("Image".localized): \(container.image)",
+            "\("Status".localized): \(container.status)",
+        ]
+        if !container.ports.isEmpty {
+            lines.append("\("Ports".localized):")
+            lines += container.ports.map { "  \($0)" }
+        }
+        if !container.mounts.isEmpty {
+            lines.append("\("Mounts".localized):")
+            lines += container.mounts.map { "  \($0)" }
+        }
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(lines.joined(separator: "\n"), forType: .string)
+    }
+
+    /// 弹出非模态、永远在最前的日志窗口，日志实时刷新。
+    private func showLogsWindow(_ container: DockerContainer) {
+        DockerLogsWindowManager.show(
+            connection: store.connection,
+            container: container,
+            config: terminalController?.ghostty.config,
+            parentWindow: terminalController?.window
+        )
+    }
+
+    /// 弹出模态窗口展示重建的 docker run 启动命令。
+    private func showRunCommandWindow(_ container: DockerContainer) {
+        DockerRunCommandWindowManager.show(
+            store: store,
+            container: container,
+            config: terminalController?.ghostty.config,
+            parentWindow: terminalController?.window
+        )
     }
 
     /// 在当前终端里执行 `docker exec -it <id> sh` 进入容器；
@@ -479,82 +502,6 @@ struct DockerPanelView: View {
                 }
             } else if alert.runModal() == .alertFirstButtonReturn {
                 proceed()
-            }
-        }
-    }
-}
-
-// MARK: - 容器信息弹窗
-
-/// 通用容器信息弹窗：日志 / 端口 / 挂载点 / 启动命令。
-private struct DockerInfoSheet: View {
-    let store: DockerService
-    let info: DockerInfo
-
-    @Environment(\.dismiss) private var dismiss
-    @State private var output: String = ""
-    @State private var isLoading = true
-
-    var body: some View {
-        VStack(spacing: 0) {
-            Text(info.title)
-                .font(.system(size: 16, weight: .semibold))
-                .padding(.top, 16)
-
-            Group {
-                if isLoading {
-                    ProgressView()
-                        .scaleEffect(0.8)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity)
-                } else {
-                    ScrollView {
-                        Text(output.isEmpty ? "No output".localized : output)
-                            .font(.system(size: 12, design: .monospaced))
-                            .textSelection(.enabled)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .padding()
-                    }
-                }
-            }
-
-            HStack {
-                Button(action: load) {
-                    Image(systemName: "arrow.clockwise")
-                        .font(.system(size: 12, weight: .medium))
-                }
-                .buttonStyle(.plain)
-                .disabled(isLoading)
-                .help("Refresh".localized)
-                Spacer()
-                Button("Close".localized) {
-                    dismiss()
-                }
-                .keyboardShortcut(.escape, modifiers: [])
-                .controlSize(.regular)
-            }
-            .padding()
-        }
-        .frame(minWidth: 480, minHeight: 320)
-        .onAppear(perform: load)
-    }
-
-    private func load() {
-        isLoading = true
-        Task {
-            let text: String
-            do {
-                switch info {
-                case .logs(let c):         text = try await store.containerLogs(id: c.id)
-                case .ports(let c):        text = try await store.containerPorts(id: c.id)
-                case .mounts(let c):       text = try await store.containerMounts(id: c.id)
-                case .startCommand(let c): text = try await store.containerRunCommand(id: c.id)
-                }
-            } catch {
-                text = error.localizedDescription
-            }
-            await MainActor.run {
-                output = text
-                isLoading = false
             }
         }
     }

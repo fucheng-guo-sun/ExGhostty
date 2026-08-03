@@ -415,6 +415,7 @@ class AppDelegate: NSObject,
         // 并关闭所有 SSH ControlMaster 通道，避免退出后残留后台任务。
         SFTPTransferManager.shared.terminateAll()
         SystemMonitorService.stopAll()
+        DockerLogsService.stopAll()
         SSHCommandExecutor.closeAllControlChannels()
 
         // We have no notifications we want to persist after death,

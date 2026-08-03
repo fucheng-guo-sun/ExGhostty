@@ -1441,23 +1441,26 @@ msgstr "確定要刪除容器「%@」嗎？"
 msgid "Are you sure you want to remove image \"%@:%@\"?"
 msgstr "確定要刪除映像「%@:%@」嗎？"
 
-msgid "View Ports"
-msgstr "檢視連接埠"
-
-msgid "View Mounts"
-msgstr "檢視掛載點"
-
 msgid "View Start Command"
 msgstr "檢視啟動命令"
 
 msgid "Open Terminal in Container"
 msgstr "進入容器內終端"
 
-msgid "Ports: %@"
-msgstr "連接埠：%@"
-
-msgid "Mounts: %@"
-msgstr "掛載點：%@"
-
 msgid "Start Command: %@"
 msgstr "啟動命令：%@"
+
+msgid "Copy Info"
+msgstr "複製資訊"
+
+msgid "Image"
+msgstr "映像"
+
+msgid "Status"
+msgstr "狀態"
+
+msgid "Ports"
+msgstr "連接埠"
+
+msgid "Mounts"
+msgstr "掛載點"

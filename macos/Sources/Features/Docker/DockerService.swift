@@ -1,6 +1,7 @@
 import Foundation
 
-/// Docker 容器条目（来自 `docker ps -a --format '{{json .}}'` 的单行 JSON）。
+/// Docker 容器条目（基础信息来自 `docker ps -a --format '{{json .}}'`；挂载点来自 `docker inspect`，
+/// 因为 ps 的 Mounts 字段对长路径会以省略号截断）。
 struct DockerContainer: Identifiable, Hashable {
     /// 容器短 ID。
     let id: String
@@ -8,7 +9,10 @@ struct DockerContainer: Identifiable, Hashable {
     let names: String
     let state: String
     let status: String
-    let ports: String
+    /// 端口映射列表，一个映射一行展示。
+    let ports: [String]
+    /// 挂载点描述列表（来源 -> 目标），一个挂载点一行展示。
+    let mounts: [String]
 
     var isRunning: Bool { state.lowercased() == "running" }
 }
@@ -77,19 +81,68 @@ final class DockerService: ObservableObject, @unchecked Sendable {
     // MARK: - 列表
 
     /// 刷新容器列表。
+    /// 分两条命令：`docker ps` 取基础信息；`docker inspect` 批量取完整挂载点
+    ///（ps 的 Mounts 字段对长路径会以省略号截断）。
     func refreshContainers() async {
-        await refresh("docker ps -a --format '{{json .}}'") { output in
-            Self.decodeLines(output, as: RawContainer.self).map {
+        guard !isLoading else { return }
+        await MainActor.run {
+            isLoading = true
+            errorMessage = nil
+        }
+        do {
+            let output = try await run("docker ps -a --format '{{json .}}'")
+            let rawList = Self.decodeLines(output, as: RawContainer.self)
+            let mountsByID = await fetchFullMounts(ids: rawList.map { $0.ID })
+            let result = rawList.map { raw in
                 DockerContainer(
-                    id: $0.ID,
-                    image: $0.Image,
-                    names: $0.Names,
-                    state: $0.State,
-                    status: $0.Status ?? "",
-                    ports: $0.Ports ?? ""
+                    id: raw.ID,
+                    image: raw.Image,
+                    names: raw.Names,
+                    state: raw.State,
+                    status: raw.Status ?? "",
+                    ports: (raw.Ports ?? "").split(separator: ", ").map(String.init),
+                    mounts: mountsByID[raw.ID] ?? []
                 )
             }
-        } assign: { self.containers = $0 }
+            await MainActor.run {
+                containers = result
+                isLoading = false
+            }
+        } catch {
+            await MainActor.run {
+                errorMessage = error.localizedDescription
+                isLoading = false
+            }
+        }
+    }
+
+    /// 批量 inspect 容器，返回 短 ID -> 完整挂载点描述（来源 -> 目标）列表。
+    /// inspect 失败时返回空表，容器列表本身不受影响（仅挂载点缺失）。
+    private func fetchFullMounts(ids: [String]) async -> [String: [String]] {
+        guard !ids.isEmpty else { return [:] }
+        let command = "docker inspect \(ids.map { Self.shellQuote($0) }.joined(separator: " "))"
+        guard let output = try? await run(command),
+              let data = output.data(using: .utf8),
+              let list = try? JSONDecoder().decode([ContainerInspection].self, from: data) else {
+            return [:]
+        }
+        var result: [String: [String]] = [:]
+        for inspection in list {
+            guard let fullID = inspection.Id else { continue }
+            let mounts = (inspection.Mounts ?? []).compactMap { mount -> String? in
+                guard let destination = mount.Destination, !destination.isEmpty else { return nil }
+                var source = mount.Source ?? ""
+                if mount.Type == "volume", let name = mount.Name, !name.isEmpty {
+                    source = name
+                }
+                guard !source.isEmpty else { return nil }
+                var line = "\(source) -> \(destination)"
+                if mount.RW == false { line += " (ro)" }
+                return line
+            }
+            result[String(fullID.prefix(12))] = mounts
+        }
+        return result
     }
 
     /// 刷新镜像列表。
@@ -138,22 +191,6 @@ final class DockerService: ObservableObject, @unchecked Sendable {
     @discardableResult
     func removeImage(reference: String) async -> Bool {
         await perform("docker rmi \(Self.shellQuote(reference))")
-    }
-
-    /// 获取容器日志（默认最近 200 行；docker 的日志输出在 stderr，需合并到 stdout）。
-    func containerLogs(id: String, tail: Int = 200) async throws -> String {
-        try await run("docker logs --tail \(tail) \(Self.shellQuote(id)) 2>&1")
-    }
-
-    /// 获取容器端口映射（`docker port` 输出）。
-    func containerPorts(id: String) async throws -> String {
-        try await run("docker port \(Self.shellQuote(id))")
-    }
-
-    /// 获取容器挂载点列表（类型: 源 -> 目标，每行一条）。
-    func containerMounts(id: String) async throws -> String {
-        let template = "{{range .Mounts}}{{.Type}}: {{.Source}} -> {{.Destination}}{{\"\\n\"}}{{end}}"
-        return try await run("docker inspect --format '\(template)' \(Self.shellQuote(id))")
     }
 
     /// 重建容器的 `docker run` 启动命令（基于 `docker inspect` 的配置，类似 runlike）。
