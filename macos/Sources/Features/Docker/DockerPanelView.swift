@@ -5,6 +5,7 @@ import SwiftUI
 private enum DockerPanelState {
     case checking
     case notInstalled
+    case permissionDenied
     case ready
 }
 
@@ -48,6 +49,8 @@ struct DockerPanelView: View {
                     .scaleEffect(0.8)
             case .notInstalled:
                 notInstalledView
+            case .permissionDenied:
+                permissionDeniedView
             case .ready:
                 contentView
             }
@@ -63,15 +66,27 @@ struct DockerPanelView: View {
     private func startService() {
         guard state == .checking else { return }
         Task {
-            let available = await store.checkDockerAvailable()
+            let access = await store.checkDockerAccess()
             await MainActor.run {
-                state = available ? .ready : .notInstalled
+                switch access {
+                case .ok, .unavailable:
+                    // unavailable（如 daemon 未运行）沿用就绪态，由列表加载时的内联错误提示原因。
+                    state = .ready
+                case .cliMissing:
+                    state = .notInstalled
+                case .permissionDenied:
+                    state = .permissionDenied
+                }
             }
-            guard available else { return }
-            await store.refreshContainers()
-            await store.refreshImages()
-            await store.refreshVolumes()
-            await store.refreshNetworks()
+            switch access {
+            case .ok, .unavailable:
+                await store.refreshContainers()
+                await store.refreshImages()
+                await store.refreshVolumes()
+                await store.refreshNetworks()
+            case .cliMissing, .permissionDenied:
+                return
+            }
         }
     }
 
@@ -101,49 +116,182 @@ struct DockerPanelView: View {
         .padding(.horizontal, 24)
     }
 
+    // MARK: - 权限不足引导
+
+    /// 无权限访问 Docker daemon 时，引导用户把账号加入 docker 用户组（而非使用 sudo）。
+    private var permissionDeniedView: some View {
+        let username = store.connection?.username ?? NSUserName()
+        let command = "sudo usermod -aG docker \(username)"
+        return VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "lock.shield")
+                .font(.system(size: 36))
+                .foregroundColor(.secondary)
+            Text("Docker permission denied".localized)
+                .font(.system(size: 14, weight: .medium))
+            Text("The current user cannot access the Docker daemon. Add the user to the docker group (recommended over sudo):".localized)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+            Text(command)
+                .font(.system(size: 12, design: .monospaced))
+                .textSelection(.enabled)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 6)
+                .background(Color(.controlBackgroundColor).opacity(0.6))
+                .cornerRadius(6)
+            Text("Then log out and log back in (or reconnect) for the change to take effect.".localized)
+                .font(.system(size: 12))
+                .foregroundColor(.secondary)
+                .multilineTextAlignment(.center)
+            HStack(spacing: 12) {
+                Button("Copy".localized) {
+                    NSPasteboard.general.clearContents()
+                    NSPasteboard.general.setString(command, forType: .string)
+                }
+                Button("Retry".localized) {
+                    state = .checking
+                    startService()
+                }
+                .buttonStyle(.borderedProminent)
+            }
+            .controlSize(.small)
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+    }
+
     // MARK: - 内容
 
     private var contentView: some View {
         VStack(spacing: 0) {
             topBar
             Divider()
-            switch tab {
-            case .containers:
-                if store.containers.isEmpty {
-                    emptyView("No containers".localized)
-                } else {
-                    containerList
+            // 加载失败且当前列表为空时，以简化文案占据内容区；
+            // 否则列表照常显示，问题以底部提示条呈现（不使用红色错误文案）。
+            if store.issue != nil, currentListIsEmpty {
+                issueView
+            } else {
+                switch tab {
+                case .containers:
+                    if store.containers.isEmpty {
+                        emptyView("No containers".localized)
+                    } else {
+                        containerList
+                    }
+                case .images:
+                    if store.images.isEmpty {
+                        emptyView("No images".localized)
+                    } else {
+                        imageList
+                    }
+                case .volumes:
+                    if store.volumes.isEmpty {
+                        emptyView("No volumes".localized)
+                    } else {
+                        volumeList
+                    }
+                case .networks:
+                    if store.networks.isEmpty {
+                        emptyView("No networks".localized)
+                    } else {
+                        networkList
+                    }
                 }
-            case .images:
-                if store.images.isEmpty {
-                    emptyView("No images".localized)
-                } else {
-                    imageList
+                // 操作类失败保留原始错误信息；加载类失败显示简化文案。
+                if let actionError = store.actionError {
+                    Divider()
+                    actionErrorBanner(actionError)
+                } else if store.issue != nil {
+                    Divider()
+                    issueBanner
                 }
-            case .volumes:
-                if store.volumes.isEmpty {
-                    emptyView("No volumes".localized)
-                } else {
-                    volumeList
-                }
-            case .networks:
-                if store.networks.isEmpty {
-                    emptyView("No networks".localized)
-                } else {
-                    networkList
-                }
-            }
-            if let error = store.errorMessage, !error.isEmpty {
-                Divider()
-                Text(error)
-                    .font(.system(size: 11))
-                    .foregroundColor(.red)
-                    .lineLimit(2)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 6)
             }
         }
+    }
+
+    private var currentListIsEmpty: Bool {
+        switch tab {
+        case .containers: return store.containers.isEmpty
+        case .images:     return store.images.isEmpty
+        case .volumes:    return store.volumes.isEmpty
+        case .networks:   return store.networks.isEmpty
+        }
+    }
+
+    // MARK: - 问题展示
+
+    /// 加载类异常统一简化为一句话提示，不展示解决方案。
+    private var issueMessage: String {
+        "Please install or start the Docker service".localized
+    }
+
+    /// 列表为空时的整页问题视图（仅提示语；刷新统一使用面板右上角的刷新按钮，
+    /// 刷新开始时 issue 会被清除）。
+    private var issueView: some View {
+        VStack(spacing: 16) {
+            Spacer()
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 36))
+                .foregroundColor(.secondary)
+            Text(issueMessage)
+                .font(.system(size: 13))
+                .foregroundColor(.secondary)
+            Spacer()
+        }
+        .padding(.horizontal, 24)
+    }
+
+    /// 列表非空时的底部问题提示条（灰色卡片，可关闭，不使用红色错误样式）。
+    private var issueBanner: some View {
+        HStack(alignment: .center, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 12))
+                .foregroundColor(.orange)
+            Text(issueMessage)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+            Spacer()
+            Button(action: { store.dismissIssue() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Close".localized)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// 操作类失败的底部提示条：保留原始错误信息。
+    private func actionErrorBanner(_ message: String) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Image(systemName: "exclamationmark.triangle")
+                .font(.system(size: 12))
+                .foregroundColor(.orange)
+            Text(message)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+                .lineLimit(3)
+                .textSelection(.enabled)
+            Spacer()
+            Button(action: { store.dismissActionError() }) {
+                Image(systemName: "xmark")
+                    .font(.system(size: 10, weight: .medium))
+                    .foregroundColor(.secondary)
+                    .frame(width: 20, height: 20)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .help("Close".localized)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var topBar: some View {

@@ -52,6 +52,26 @@ struct DockerNetwork: Identifiable, Hashable {
     let scope: String
 }
 
+/// 加载/操作失败的分类问题，供面板按情况展示“当前信息 + 解决方案”而不是原始红色错误。
+struct DockerIssue {
+    enum Kind {
+        /// Docker 服务未运行（无法连接 daemon）。
+        case daemonDown
+        /// 无权限访问 daemon socket（需加入 docker 用户组）。
+        case permissionDenied
+        /// 删除仍在运行的容器。
+        case containerRunning
+        /// 删除仍被容器引用的镜像。
+        case imageInUse
+        /// 其他命令失败。
+        case commandFailed
+    }
+
+    let kind: Kind
+    /// 原始错误信息（已去除首尾空白）。
+    let detail: String
+}
+
 /// Docker 管理服务：本地终端在本机执行 docker CLI；SSH 终端通过 SSHCommandExecutor 在远程主机执行。
 /// 标记为 `@unchecked Sendable` 是因为所有可变状态都在主线程上串行访问。
 final class DockerService: ObservableObject, @unchecked Sendable {
@@ -62,19 +82,80 @@ final class DockerService: ObservableObject, @unchecked Sendable {
     @Published private(set) var volumes: [DockerVolume] = []
     @Published private(set) var networks: [DockerNetwork] = []
     @Published private(set) var isLoading = false
-    @Published var errorMessage: String?
+    /// 最近一次加载（列表刷新）失败的分类问题；刷新开始时清除。统一以简化文案展示。
+    @Published private(set) var issue: DockerIssue?
+    /// 最近一次操作（启停/重启/删除等）失败的原始错误信息；保留原文展示。
+    @Published private(set) var actionError: String?
 
     init(connection: SSHConnection?) {
         self.connection = connection
     }
 
-    /// 检查目标主机上是否存在 docker 命令。
-    func checkDockerAvailable() async -> Bool {
+    /// Docker 访问检查结果。
+    enum DockerAccess {
+        case ok
+        /// docker CLI 不存在。
+        case cliMissing
+        /// 当前用户无权访问 Docker daemon socket（通常需要加入 docker 用户组，而非使用 sudo）。
+        case permissionDenied
+        /// 其他失败（如 daemon 未运行）。
+        case unavailable
+    }
+
+    /// 检查目标主机上的 docker 可用性与访问权限。
+    func checkDockerAccess() async -> DockerAccess {
         do {
             let path = try await run("command -v docker || which docker")
-            return !path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            if path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                return .cliMissing
+            }
         } catch {
-            return false
+            return .cliMissing
+        }
+        do {
+            // 保留 stderr（权限错误信息在 stderr 上），仅丢弃 stdout。
+            _ = try await run("docker info >/dev/null")
+            return .ok
+        } catch {
+            return Self.isPermissionDenied(error) ? .permissionDenied : .unavailable
+        }
+    }
+
+    /// 判断错误是否为访问 Docker daemon socket 的权限问题。
+    static func isPermissionDenied(_ error: Error) -> Bool {
+        error.localizedDescription.localizedCaseInsensitiveContains("permission denied")
+    }
+
+    /// 把原始错误分类为结构化问题。
+    static func classify(_ error: Error) -> DockerIssue {
+        let text = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+        if isPermissionDenied(error) {
+            return DockerIssue(kind: .permissionDenied, detail: text)
+        }
+        let lower = text.lowercased()
+        if lower.contains("cannot connect to the docker daemon") || lower.contains("is the docker daemon running") {
+            return DockerIssue(kind: .daemonDown, detail: text)
+        }
+        if lower.contains("container is running") {
+            return DockerIssue(kind: .containerRunning, detail: text)
+        }
+        if lower.contains("image is being used") || lower.contains("is using its referenced image") {
+            return DockerIssue(kind: .imageInUse, detail: text)
+        }
+        return DockerIssue(kind: .commandFailed, detail: text)
+    }
+
+    /// 清除当前问题（提示条的关闭按钮）。
+    func dismissIssue() {
+        DispatchQueue.main.async { [weak self] in
+            self?.issue = nil
+        }
+    }
+
+    /// 清除当前操作错误（提示条的关闭按钮）。
+    func dismissActionError() {
+        DispatchQueue.main.async { [weak self] in
+            self?.actionError = nil
         }
     }
 
@@ -87,7 +168,7 @@ final class DockerService: ObservableObject, @unchecked Sendable {
         guard !isLoading else { return }
         await MainActor.run {
             isLoading = true
-            errorMessage = nil
+            issue = nil
         }
         do {
             let output = try await run("docker ps -a --format '{{json .}}'")
@@ -110,7 +191,7 @@ final class DockerService: ObservableObject, @unchecked Sendable {
             }
         } catch {
             await MainActor.run {
-                errorMessage = error.localizedDescription
+                issue = Self.classify(error)
                 isLoading = false
             }
         }
@@ -181,13 +262,13 @@ final class DockerService: ObservableObject, @unchecked Sendable {
         case remove = "rm"
     }
 
-    /// 对容器执行 start/stop/restart/rm；成功返回 true，失败时设置 errorMessage。
+    /// 对容器执行 start/stop/restart/rm；成功返回 true，失败时设置 issue。
     @discardableResult
     func performContainerAction(_ action: ContainerAction, id: String) async -> Bool {
         await perform("docker \(action.rawValue) \(Self.shellQuote(id))")
     }
 
-    /// 删除镜像；成功返回 true，失败时设置 errorMessage。
+    /// 删除镜像；成功返回 true，失败时设置 issue。
     @discardableResult
     func removeImage(reference: String) async -> Bool {
         await perform("docker rmi \(Self.shellQuote(reference))")
@@ -222,7 +303,7 @@ final class DockerService: ObservableObject, @unchecked Sendable {
         guard !isLoading else { return }
         await MainActor.run {
             isLoading = true
-            errorMessage = nil
+            issue = nil
         }
         do {
             let output = try await run(command)
@@ -233,18 +314,22 @@ final class DockerService: ObservableObject, @unchecked Sendable {
             }
         } catch {
             await MainActor.run {
-                errorMessage = error.localizedDescription
+                issue = Self.classify(error)
                 isLoading = false
             }
         }
     }
 
     private func perform(_ command: String) async -> Bool {
+        await MainActor.run { actionError = nil }
         do {
             _ = try await run(command)
             return true
         } catch {
-            await MainActor.run { errorMessage = error.localizedDescription }
+            // 操作类失败保留原始错误信息，便于用户判断真实原因。
+            await MainActor.run {
+                actionError = error.localizedDescription.trimmingCharacters(in: .whitespacesAndNewlines)
+            }
             return false
         }
     }

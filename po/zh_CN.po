@@ -1468,3 +1468,18 @@ msgstr "端口"
 
 msgid "Mounts"
 msgstr "挂载点"
+
+msgid "Docker permission denied"
+msgstr "Docker 权限不足"
+
+msgid "The current user cannot access the Docker daemon. Add the user to the docker group (recommended over sudo):"
+msgstr "当前用户无权访问 Docker 守护进程。建议将用户加入 docker 用户组（而不是使用 sudo）："
+
+msgid "Then log out and log back in (or reconnect) for the change to take effect."
+msgstr "然后注销并重新登录（或重新连接），使变更生效。"
+
+msgid "Retry"
+msgstr "重试"
+
+msgid "Please install or start the Docker service"
+msgstr "请安装或启动Docker服务"
