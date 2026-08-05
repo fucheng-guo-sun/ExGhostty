@@ -634,7 +634,25 @@ class BaseTerminalController: NSWindowController,
         default: return
         }
 
-        newSplit(at: oldView, direction: splitDirection, baseConfig: config)
+        // 远程连接（SSH/Telnet）的终端分屏时，新分屏必须沿用同一个远程连接，
+        // 而不是退回本地终端；配置构建失败时退回默认（本地）行为。
+        var finalConfig = config
+        if let conn = sshConnection,
+           let remoteConfig = RemoteSurfaceConfiguration.make(for: conn, gridSize: gridSize(of: oldView)) {
+            finalConfig = remoteConfig
+        }
+
+        newSplit(at: oldView, direction: splitDirection, baseConfig: finalConfig)
+    }
+
+    /// 读取 surface 当前的终端行列数，供 SSH expect 脚本初始化 PTY 尺寸。
+    private func gridSize(of view: Ghostty.SurfaceView) -> (rows: Int, cols: Int)? {
+        let size = view.bounds.size
+        let cellSize = view.cellSize
+        guard cellSize.width > 0, cellSize.height > 0, size.width > 0, size.height > 0 else { return nil }
+        let cols = max(1, Int(size.width / cellSize.width))
+        let rows = max(1, Int(size.height / cellSize.height))
+        return (rows: rows, cols: cols)
     }
 
     @objc private func ghosttyDidEqualizeSplits(_ notification: Notification) {
