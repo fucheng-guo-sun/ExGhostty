@@ -261,6 +261,7 @@ actor SFTPService {
         try await SSHCommandExecutor.shared.withControlChannel(connection: connection) { socket in
             var args = ["--partial", "--progress", "-e", "ssh -S \(socket)"]
             if compress { args.append("-z") }
+            self.applyIdentityToRsyncArgs(&args, connection: connection)
             args.append(localPath)
             // 远程路径由远端 shell 解析，含空格时会被拆分，必须加引号。
             args.append("\(connection.host):\(remotePath.singleQuotedShellArgument())")
@@ -280,11 +281,21 @@ actor SFTPService {
         try await SSHCommandExecutor.shared.withControlChannel(connection: connection) { socket in
             var args = ["--partial", "--progress", "-e", "ssh -S \(socket)"]
             if compress { args.append("-z") }
+            self.applyIdentityToRsyncArgs(&args, connection: connection)
             // 远程路径由远端 shell 解析，含空格时会被拆分，必须加引号。
             args.append("\(connection.host):\(remotePath.singleQuotedShellArgument())")
             args.append(localPath)
             try await self.runRsync(args: args, task: task, progressOffset: progressOffset, progressScale: progressScale)
         }
+    }
+
+    /// 「用户身份」切换后，rsync 需以有效用户身份在远端运行。
+    /// 说明：rsync 协议流占用 stdin，无法走 sudo -S 密码通道，只能依赖 NOPASSWD（sudo -n）；
+    /// 需要 sudo 密码的主机上，切换身份后的传输会失败并体现在任务错误中。
+    private func applyIdentityToRsyncArgs(_ args: inout [String], connection: SSHConnection) {
+        guard let identity = SSHIdentityStore.shared.identity(for: connection.id),
+              identity.username != connection.username else { return }
+        args += ["--rsync-path", "sudo -n -u \(identity.username) rsync"]
     }
 
     private func runRsync(

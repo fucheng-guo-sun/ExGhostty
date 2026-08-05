@@ -52,7 +52,8 @@ actor SSHCommandExecutor {
         connection: SSHConnection
     ) async throws -> String {
         let backend = try backend(for: connection)
-        let args = connection.sshBaseArgs.split(separator: " ").map(String.init) + [remoteCommand]
+        let command = await effectiveCommand(remoteCommand, for: connection)
+        let args = connection.sshBaseArgs.split(separator: " ").map(String.init) + [command]
         let invocation = try backend.sshInvocation(args: args)
         return try await runCommand(invocation)
     }
@@ -65,13 +66,22 @@ actor SSHCommandExecutor {
         connection: SSHConnection
     ) async throws -> SSHStreamingInvocation {
         let backend = try backend(for: connection)
-        let args = connection.sshBaseArgs.split(separator: " ").map(String.init) + [remoteCommand]
+        let command = await effectiveCommand(remoteCommand, for: connection)
+        let args = connection.sshBaseArgs.split(separator: " ").map(String.init) + [command]
         let invocation = try backend.sshInvocation(args: args)
         return SSHStreamingInvocation(
             executableURL: invocation.executableURL,
             arguments: invocation.arguments,
             environment: invocation.environment
         )
+    }
+
+    /// 若「用户身份」面板为该连接切换了有效用户，则把命令包装为以该用户身份执行。
+    private func effectiveCommand(_ remoteCommand: String, for connection: SSHConnection) async -> String {
+        guard let identity = SSHIdentityStore.shared.identity(for: connection.id) else {
+            return remoteCommand
+        }
+        return SSHIdentityStore.wrap(remoteCommand: remoteCommand, as: identity, loginUsername: connection.username)
     }
 
     /// 为指定连接建立一个 SSH ControlMaster 通道，并在通道可用期间执行 `operation`。

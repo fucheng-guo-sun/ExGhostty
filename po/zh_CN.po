@@ -1483,3 +1483,27 @@ msgstr "重试"
 
 msgid "Please install or start the Docker service"
 msgstr "请安装或启动Docker服务"
+
+msgid "User Identity"
+msgstr "用户身份"
+
+msgid "Users"
+msgstr "用户列表"
+
+msgid "Login User"
+msgstr "登录用户"
+
+msgid "Current Identity"
+msgstr "当前身份"
+
+msgid "Switch back to login user"
+msgstr "切回登录用户"
+
+msgid "Enter the sudo password for %@"
+msgstr "请输入 %@ 的 sudo 密码"
+
+msgid "Authentication failed or sudo is unavailable"
+msgstr "认证失败或 sudo 不可用"
+
+msgid "No users found"
+msgstr "未找到用户"

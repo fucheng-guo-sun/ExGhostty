@@ -26,8 +26,10 @@ final class SFTPPanelViewModel: ObservableObject {
     /// 远端用户主目录，用于把标题中的 `~` 展开为绝对路径。
     private var remoteHomeDirectory: String?
     /// 根据用户名推断的默认远端主目录。root 用户为 /root，其他用户为 /home/<username>。
+    /// 「用户身份」切换后以有效用户为准。
     private var defaultHomeDirectory: String {
-        connection.username == "root" ? "/root" : "/home/\(connection.username)"
+        let username = SSHIdentityStore.shared.identity(for: connection.id)?.username ?? connection.username
+        return username == "root" ? "/root" : "/home/\(username)"
     }
     init(connection: SSHConnection, terminalController: TerminalController?) {
         self.connection = connection
