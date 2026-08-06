@@ -146,14 +146,35 @@ final class SFTPPanelViewModel: ObservableObject {
 
     // MARK: - 导航
 
+    /// 打开面板时向终端注入一次 pwd 上报（OSC 7），让面板定位到终端的当前目录。
+    ///
+    /// SSH 远端 shell 自己上报的 OSC 7 会被 ghostty 以「主机名非本地」为由丢弃
+    /// （src/termio/stream_handler.zig 的 OSC 7 校验），因此注入时把主机名写成 localhost
+    /// 以通过校验，仅借用其路径部分；上报后由 currentDirectoryURL 的订阅完成跳转。
+    func syncWorkingDirectoryFromTerminal() {
+        DispatchQueue.main.async { [weak self] in
+            guard let surface = self?.terminalController?.focusedSurface?.surfaceModel else { return }
+            surface.sendText(#"printf '\033]7;file://localhost%s\007' "$PWD""#)
+            surface.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .press, text: "\r"))
+        }
+    }
+
     /// 上一级目录路径；当前位于根目录时为 nil。
     var parentPath: String? {
         let parent = (currentPath as NSString).deletingLastPathComponent
         return parent == currentPath ? nil : parent
     }
 
+    /// 刷新进行中被再次请求时置位（例如面板打开时 HOME 的初始刷新尚未完成，
+    /// OSC 7 目录同步就到达了），当前刷新完成后自动补一次，避免列表停留在旧目录。
+    private var pendingRefresh = false
+
     func refresh() {
-        guard !isLoading else { return }
+        guard !isLoading else {
+            pendingRefresh = true
+            return
+        }
+        pendingRefresh = false
         isLoading = true
         errorMessage = nil
         // 刷新前记录已选中的文件名，刷新后按文件名恢复勾选状态。
@@ -181,7 +202,7 @@ final class SFTPPanelViewModel: ObservableObject {
                     }
                     self.selectedItems = Set(self.items.filter { previouslySelectedNames.contains($0.name) }.map { $0.id })
                     self.parentIsWritable = writable
-                    self.isLoading = false
+                    self.finishLoading()
                 }
             } catch {
                 await MainActor.run {
@@ -194,9 +215,17 @@ final class SFTPPanelViewModel: ObservableObject {
                     } else {
                         self.errorMessage = error.localizedDescription
                     }
-                    self.isLoading = false
+                    self.finishLoading()
                 }
             }
+        }
+    }
+
+    /// 结束一次刷新；若有被挡下的刷新请求则立即补刷。
+    private func finishLoading() {
+        isLoading = false
+        if pendingRefresh {
+            refresh()
         }
     }
 
@@ -670,6 +699,10 @@ struct SFTPPanelView: View {
             fileList
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        // 打开面板时同步一次终端当前目录（先 cd 再打开 SFTP 的场景）。
+        .onAppear {
+            viewModel.syncWorkingDirectoryFromTerminal()
+        }
         // 从 Finder 拖入到列表空白区域（或面板其他非行区域）：上传到当前目录。
         // 注：直接挂在 SwiftUI List 上的 onDrop 无法覆盖空白区域，因此挂在外层容器。
         .onDrop(of: [.fileURL], delegate: SFTPListDropDelegate(viewModel: viewModel))
