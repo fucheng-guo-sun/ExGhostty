@@ -115,8 +115,10 @@ final class UserIdentityPanelModel: ObservableObject {
     }
 
     /// 写入身份并验证；失败时回滚并返回 false。验证通过后保存密码供下次复用，
-    /// 并在终端里完成身份切换（自动代输密码）。
+    /// 并在终端里完成身份切换（自动代输密码，且验证终端实际用户）。
     private func applyIdentity(_ username: String, password: String?, terminalController: TerminalController?) async -> Bool {
+        // 记录切换前终端是否处于他人身份（su shell 中），决定终端切换时是否先 exit。
+        let wasSwitched = effectiveIdentity != nil
         SSHIdentityStore.shared.setIdentity(
             .init(username: username, sudoPassword: password),
             for: connection.id
@@ -135,25 +137,77 @@ final class UserIdentityPanelModel: ObservableObject {
         if let password, !password.isEmpty {
             SSHIdentityStore.shared.saveSudoPassword(password, for: connection.id)
         }
-        switchTerminalIdentity(username: username, password: password, terminalController: terminalController)
+        await performTerminalSwitch(username: username, password: password, wasSwitched: wasSwitched, terminalController: terminalController)
         return true
     }
 
-    /// 在终端里执行 `sudo su - <user>` 完成交互 shell 的身份切换。
+    /// 在终端里执行 `sudo su - <user>` 完成交互 shell 的身份切换，并验证结果。
     ///
-    /// sudo 需要密码时：用 `sudo -k` 使缓存凭据失效，保证一定出现密码提示，
-    /// 再延时发送密码——tty 输入有缓冲，早到的密码会留在输入队列中由 sudo 读取，
-    /// 且 sudo 密码提示不回显，密码不会显示在终端里。
-    /// NOPASSWD 主机（密码为空）：不会出现提示，直接 su，不发送密码，
-    /// 避免密码被当作 shell 命令打出来。
-    private func switchTerminalIdentity(username: String, password: String?, terminalController: TerminalController?) {
+    /// 流程：处于他人身份时先发送 `exit` 并验证终端确实回到了登录用户（exit 失败则中止并弹窗）；
+    /// 然后发送切换命令——sudo 需要密码时用 `sudo -k` 使缓存凭据失效，保证一定出现密码提示，
+    /// 再延时发送密码（tty 输入有缓冲，早到的密码由 sudo 读取；sudo 密码提示不回显，密码不可见；
+    /// NOPASSWD 主机不发送密码，避免被当作 shell 命令打出来）；
+    /// 最后探测终端的实际用户，与目标不符时弹窗告知原因。
+    private func performTerminalSwitch(username: String, password: String?, wasSwitched: Bool, terminalController: TerminalController?) async {
+        // 1. 处于他人身份：先 exit，并验证确实回到了登录用户，不允许在 su shell 里直接嵌套切换。
+        if wasSwitched {
+            sendToTerminal("exit", terminalController)
+            try? await Task.sleep(nanoseconds: 800_000_000)
+            let actual = await probeTerminalUser(tag: "exit", terminalController: terminalController)
+            guard actual == connection.username else {
+                showSwitchFailure(L(
+                    "Failed to exit the current identity (current terminal user: %@).",
+                    actual ?? "unknown".localized
+                ))
+                return
+            }
+        }
+
+        // 2. 发送切换命令（与密码）。
         if let password, !password.isEmpty {
             sendToTerminal("sudo -k su - \(username)", terminalController)
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) { [weak self] in
-                self?.sendToTerminal(password, terminalController)
-            }
+            try? await Task.sleep(nanoseconds: 900_000_000)
+            sendToTerminal(password, terminalController)
         } else {
             sendToTerminal("sudo su - \(username)", terminalController)
+        }
+        try? await Task.sleep(nanoseconds: 900_000_000)
+
+        // 3. 验证终端的实际用户。
+        let actual = await probeTerminalUser(tag: "switch", terminalController: terminalController)
+        guard actual == username else {
+            showSwitchFailure(L(
+                "Failed to switch identity (current terminal user: %@). The sudo password may be incorrect or sudo is unavailable.",
+                actual ?? "unknown".localized
+            ))
+            return
+        }
+    }
+
+    /// 探测终端当前实际用户：在终端里把 whoami 写入临时文件，再经后台通道读回比对。
+    private func probeTerminalUser(tag: String, terminalController: TerminalController?) async -> String? {
+        let path = "/tmp/ghostty_whoami_\(connection.id.uuidString)_\(tag)"
+        sendToTerminal("whoami > \(path) 2>/dev/null", terminalController)
+        try? await Task.sleep(nanoseconds: 1_200_000_000)
+        let output = try? await SSHCommandExecutor.shared.execute(
+            remoteCommand: "cat \(path) 2>/dev/null; rm -f \(path) 2>/dev/null",
+            connection: connection
+        )
+        let user = output?.trimmingCharacters(in: .whitespacesAndNewlines)
+        return user?.isEmpty == false ? user : nil
+    }
+
+    /// 切换失败弹窗，告知用户原因。
+    private func showSwitchFailure(_ message: String) {
+        let alert = NSAlert()
+        alert.messageText = "Identity switch failed".localized
+        alert.informativeText = message
+        alert.alertStyle = .warning
+        alert.addButton(withTitle: "OK".localized)
+        if let win = NSApp.keyWindow {
+            alert.beginSheetModal(for: win) { _ in }
+        } else {
+            alert.runModal()
         }
     }
 

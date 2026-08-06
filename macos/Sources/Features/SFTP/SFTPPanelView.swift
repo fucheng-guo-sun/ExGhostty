@@ -700,6 +700,7 @@ struct SFTPPanelView: View {
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         // 打开面板时同步一次终端当前目录（先 cd 再打开 SFTP 的场景）。
+        // 路径变化由 viewModel 对 currentDirectoryURL 的订阅监听，变化即重新拉取目录内容。
         .onAppear {
             viewModel.syncWorkingDirectoryFromTerminal()
         }

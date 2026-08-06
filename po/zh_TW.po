@@ -1503,3 +1503,15 @@ msgstr "認證失敗或 sudo 不可用"
 
 msgid "No users found"
 msgstr "找不到使用者"
+
+msgid "Identity switch failed"
+msgstr "身份切換失敗"
+
+msgid "Failed to exit the current identity (current terminal user: %@)."
+msgstr "退出目前身份失敗（終端目前使用者：%@）。"
+
+msgid "Failed to switch identity (current terminal user: %@). The sudo password may be incorrect or sudo is unavailable."
+msgstr "切換身份失敗（終端目前使用者：%@）。可能是 sudo 密碼錯誤或 sudo 不可用。"
+
+msgid "unknown"
+msgstr "未知"
