@@ -148,13 +148,17 @@ final class SFTPPanelViewModel: ObservableObject {
 
     /// 打开面板时向终端注入一次 pwd 上报（OSC 7），让面板定位到终端的当前目录。
     ///
-    /// SSH 远端 shell 自己上报的 OSC 7 会被 ghostty 以「主机名非本地」为由丢弃
-    /// （src/termio/stream_handler.zig 的 OSC 7 校验），因此注入时把主机名写成 localhost
-    /// 以通过校验，仅借用其路径部分；上报后由 currentDirectoryURL 的订阅完成跳转。
+    /// 两点技巧：
+    /// 1. SSH 远端 shell 自己上报的 OSC 7 会被 ghostty 以「主机名非本地」为由丢弃
+    ///    （src/termio/stream_handler.zig 的 OSC 7 校验），因此把主机名写成 localhost
+    ///    以通过校验，仅借用其路径部分；
+    /// 2. printf 输出尾部附带擦除序列：回车产生的新行和命令回显所在行都会被清除，
+    ///    shell 随后在原位置打印新提示符——终端里不会留下这条命令的痕迹。
+    ///    上报后由 currentDirectoryURL 的订阅完成跳转。
     func syncWorkingDirectoryFromTerminal() {
         DispatchQueue.main.async { [weak self] in
             guard let surface = self?.terminalController?.focusedSurface?.surfaceModel else { return }
-            surface.sendText(#"printf '\033]7;file://localhost%s\007' "$PWD""#)
+            surface.sendText(#"printf '\033]7;file://localhost%s\007\033[K\033[1A\033[K' "$PWD""#)
             surface.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .press, text: "\r"))
         }
     }
@@ -194,13 +198,18 @@ final class SFTPPanelViewModel: ObservableObject {
                     writable = false
                 }
                 await MainActor.run {
-                    self.items = list.sorted {
+                    let sorted = list.sorted {
                         if $0.isDirectory != $1.isDirectory {
                             return $0.isDirectory && !$1.isDirectory
                         }
                         return $0.name.localizedStandardCompare($1.name) == .orderedAscending
                     }
-                    self.selectedItems = Set(self.items.filter { previouslySelectedNames.contains($0.name) }.map { $0.id })
+                    // 内容没有变化时不替换 items（新 id 会导致列表滚动/选中状态抖动），
+                    // 定时自动刷新依赖这一比对做到无变化零打扰。
+                    if Self.signature(of: sorted) != Self.signature(of: self.items) {
+                        self.items = sorted
+                        self.selectedItems = Set(self.items.filter { previouslySelectedNames.contains($0.name) }.map { $0.id })
+                    }
                     self.parentIsWritable = writable
                     self.finishLoading()
                 }
@@ -227,6 +236,33 @@ final class SFTPPanelViewModel: ObservableObject {
         if pendingRefresh {
             refresh()
         }
+    }
+
+    /// 列表内容指纹（不含易变的 id），用于判断刷新结果是否有实际变化。
+    private static func signature(of items: [SFTPFileItem]) -> String {
+        items.map {
+            "\($0.name)|\($0.type)|\($0.size ?? -1)|\($0.modificationDate?.timeIntervalSince1970 ?? 0)|\($0.permissions ?? "")"
+        }
+        .sorted()
+        .joined(separator: "\n")
+    }
+
+    // MARK: - 定时自动刷新
+
+    private var autoRefreshTimer: Timer?
+
+    /// 面板显示期间定时刷新，让终端里的 rm 等远端变更及时反映到文件列表。
+    /// 配合 refresh 内的指纹比对，内容无变化时不会引起任何界面抖动。
+    func startAutoRefresh() {
+        guard autoRefreshTimer == nil else { return }
+        autoRefreshTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            self?.refresh()
+        }
+    }
+
+    func stopAutoRefresh() {
+        autoRefreshTimer?.invalidate()
+        autoRefreshTimer = nil
     }
 
     /// 判断错误是否为远端路径不存在或不是目录。
@@ -703,6 +739,10 @@ struct SFTPPanelView: View {
         // 路径变化由 viewModel 对 currentDirectoryURL 的订阅监听，变化即重新拉取目录内容。
         .onAppear {
             viewModel.syncWorkingDirectoryFromTerminal()
+            viewModel.startAutoRefresh()
+        }
+        .onDisappear {
+            viewModel.stopAutoRefresh()
         }
         // 从 Finder 拖入到列表空白区域（或面板其他非行区域）：上传到当前目录。
         // 注：直接挂在 SwiftUI List 上的 onDrop 无法覆盖空白区域，因此挂在外层容器。
