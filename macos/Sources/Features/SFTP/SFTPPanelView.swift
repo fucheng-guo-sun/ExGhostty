@@ -31,14 +31,42 @@ final class SFTPPanelViewModel: ObservableObject {
         let username = SSHIdentityStore.shared.identity(for: connection.identityKey)?.username ?? connection.username
         return username == "root" ? "/root" : "/home/\(username)"
     }
+
+    /// 当前生效的身份用户名，用于识别身份切换。
+    private var lastIdentityUsername: String
+
     init(connection: SSHConnection, terminalController: TerminalController?) {
         self.connection = connection
         self.terminalController = terminalController
-        self.currentPath = terminalController?.currentDirectoryURL?.path
+        self.lastIdentityUsername = connection.username
+        // 身份已切换时，currentDirectoryURL 可能是切换前注入留下的过期路径（属于登录用户），
+        // 不信任它，直接用有效用户的主目录；面板 onAppear 的注入会再刷新为终端真实 cwd。
+        let isSwitched = SSHIdentityStore.shared.identity(for: connection.identityKey) != nil
+        self.currentPath = (isSwitched ? nil : terminalController?.currentDirectoryURL?.path)
             ?? defaultHomeDirectory
 
+        // 「用户身份」切换后：跳到有效用户的主目录并重新加载。
+        SSHIdentityStore.shared.$identities
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                let username = SSHIdentityStore.shared.identity(for: self.connection.identityKey)?.username
+                    ?? self.connection.username
+                guard username != self.lastIdentityUsername else { return }
+                self.lastIdentityUsername = username
+                // 清掉缓存的真实主目录，按新身份重新获取并修正路径。
+                self.remoteHomeDirectory = nil
+                self.currentPath = self.defaultHomeDirectory
+                self.fetchRemoteHomeDirectory()
+                self.refresh()
+            }
+            .store(in: &cancellables)
+
         // 终端通过 OSC 7 上报当前目录（需要远端 shell 启用了 Ghostty shell integration）。
+        // dropFirst：sink 订阅时会立即回放当前值，而 currentDirectoryURL 可能是身份切换前
+        // 注入留下的过期路径；初值已在上面读取，回放只会把路径盖回旧目录。
         terminalController?.$currentDirectoryURL
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] url in
                 guard let self, let path = url?.path, path != self.currentPath else { return }
@@ -48,7 +76,9 @@ final class SFTPPanelViewModel: ObservableObject {
             .store(in: &cancellables)
 
         // 若 OSC 7 不可用，尝试从标题栏回推当前目录（Ghostty integration 的 title 特征为 \w）。
+        // dropFirst：同上，标题回放也可能是过期内容。
         terminalController?.$focusedSurfaceRawTitle
+            .dropFirst()
             .receive(on: DispatchQueue.main)
             .sink { [weak self] title in
                 guard let self, let title else { return }

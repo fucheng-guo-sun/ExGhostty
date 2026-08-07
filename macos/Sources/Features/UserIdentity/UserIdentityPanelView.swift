@@ -90,6 +90,12 @@ final class UserIdentityPanelModel: ObservableObject {
             SSHIdentityStore.shared.reset(for: connection.identityKey)
             if wasSwitched {
                 sendToTerminal("exit", terminalController)
+                // 清理远端 sudo askpass 助手（含密码）。
+                let path = SSHIdentityStore.sudoAskpassPath(connectionID: connection.id)
+                _ = try? await SSHCommandExecutor.shared.executeAsLoginUser(
+                    remoteCommand: "rm -f \(path)",
+                    connection: connection
+                )
             }
             return
         }
@@ -156,6 +162,9 @@ final class UserIdentityPanelModel: ObservableObject {
         }
         if let password, !password.isEmpty {
             SSHIdentityStore.shared.saveSudoPassword(password, for: connection.id)
+            // 部署 sudo askpass 助手（SFTP 的 rsync 传输走 sudo -A 读它，rsync 协议流占用 stdin
+            // 无法走 sudo -S）。助手含密码，必须以登录用户身份部署并保持 700 权限。
+            await deploySudoAskpass(password: password)
         }
         await performTerminalSwitch(
             username: username,
@@ -252,6 +261,19 @@ final class UserIdentityPanelModel: ObservableObject {
 
     /// 远端切换脚本路径（内容无密钥，多连接共用无冲突）。
     private static let switchScriptPath = "/tmp/.ghostty_switch.sh"
+
+    /// 部署 sudo askpass 助手脚本到远端：内容为输出 sudo 密码（base64 防特殊字符），
+    /// 权限 700、以登录用户身份写入（sudo -A 由登录用户的会话调用，必须对登录用户可执行）。
+    private func deploySudoAskpass(password: String) async {
+        let passwordB64 = Data(password.utf8).base64EncodedString()
+        let script = "#!/bin/sh\necho \(passwordB64) | base64 -d\n"
+        let scriptB64 = Data(script.utf8).base64EncodedString()
+        let path = SSHIdentityStore.sudoAskpassPath(connectionID: connection.id)
+        _ = try? await SSHCommandExecutor.shared.executeAsLoginUser(
+            remoteCommand: "echo \(scriptB64) | base64 -d > \(path); chmod 700 \(path)",
+            connection: connection
+        )
+    }
 
     /// 切换结果弹窗（失败或需要用户确认时告知原因）。
     private func showSwitchFailure(_ message: String, title: String = "Identity switch failed".localized, style: NSAlert.Style = .warning) {

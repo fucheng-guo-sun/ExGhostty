@@ -81,10 +81,20 @@ actor SFTPService {
         return items
     }
 
-    /// 刷新当前目录：返回当前工作目录路径。
+    /// 返回有效用户的主目录路径。
+    ///
+    /// 注意不能用 `pwd`：新 SSH 会话总是落在登录用户的主目录，身份切换后
+    /// 包装为目标用户也不会改变会话的起始目录（会得到登录用户的 home）。
+    /// 改为从 passwd 读取有效用户自己的 home。
     func currentRemoteDirectory(connection: SSHConnection) async throws -> String {
-        let output = try await SSHCommandExecutor.shared.execute(remoteCommand: "pwd", connection: connection)
-        return output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let username = SSHIdentityStore.shared.identity(for: connection.identityKey)?.username
+            ?? connection.username
+        let output = try await SSHCommandExecutor.shared.execute(
+            remoteCommand: "(getent passwd \(username) 2>/dev/null || grep -m1 '^\(username):' /etc/passwd) | cut -d: -f6",
+            connection: connection
+        )
+        let home = output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return home.isEmpty ? "/" : home
     }
 
     // MARK: - 上传
@@ -290,12 +300,18 @@ actor SFTPService {
     }
 
     /// 「用户身份」切换后，rsync 需以有效用户身份在远端运行。
-    /// 说明：rsync 协议流占用 stdin，无法走 sudo -S 密码通道，只能依赖 NOPASSWD（sudo -n）；
-    /// 需要 sudo 密码的主机上，切换身份后的传输会失败并体现在任务错误中。
+    /// rsync 协议流占用 stdin，无法走 sudo -S；有密码时用 sudo -A + SUDO_ASKPASS 助手
+    /// （助手在切换成功后由用户身份面板部署，700 权限、登录用户持有）；
+    /// 无密码时用 sudo -n（依赖 NOPASSWD）。
     private func applyIdentityToRsyncArgs(_ args: inout [String], connection: SSHConnection) {
         guard let identity = SSHIdentityStore.shared.identity(for: connection.identityKey),
               identity.username != connection.username else { return }
-        args += ["--rsync-path", "sudo -n -u \(identity.username) rsync"]
+        if let password = identity.sudoPassword, !password.isEmpty {
+            let askpass = SSHIdentityStore.sudoAskpassPath(connectionID: connection.id)
+            args += ["--rsync-path", "SUDO_ASKPASS=\(askpass) sudo -A -u \(identity.username) rsync"]
+        } else {
+            args += ["--rsync-path", "sudo -n -u \(identity.username) rsync"]
+        }
     }
 
     private func runRsync(

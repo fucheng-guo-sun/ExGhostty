@@ -60,6 +60,18 @@ actor SSHCommandExecutor {
         return try await runCommand(invocation)
     }
 
+    /// 以登录用户身份执行远程命令（忽略「用户身份」切换），
+    /// 用于部署 sudo askpass 助手等必须由登录用户持有的基础设施命令。
+    func executeAsLoginUser(
+        remoteCommand: String,
+        connection: SSHConnection
+    ) async throws -> String {
+        let backend = try backend(for: connection)
+        let args = connection.sshBaseArgs.split(separator: " ").map(String.init) + [remoteCommand]
+        let invocation = try backend.sshInvocation(args: args)
+        return try await runCommand(invocation)
+    }
+
     /// 构造一个可用于长时间运行（流式）进程的 SSH 调用描述。
     ///
     /// 调用方负责创建并管理 `Process` 的生命周期。

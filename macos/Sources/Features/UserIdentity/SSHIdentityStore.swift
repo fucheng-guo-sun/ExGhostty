@@ -99,6 +99,11 @@ final class SSHIdentityStore: ObservableObject, @unchecked Sendable {
         return "sudo -n -u \(quotedUser) sh -c \(quotedCommand)"
     }
 
+    /// 远端 sudo askpass 助手路径（按连接配置区分）。
+    static func sudoAskpassPath(connectionID: UUID) -> String {
+        "/tmp/.ghostty_sudo_askpass_\(connectionID.uuidString)"
+    }
+
     /// 把任意值包裹为 shell 单引号字符串，内部的单引号转义为 `'\''`。
     private static func shellQuote(_ value: String) -> String {
         "'" + value.replacingOccurrences(of: "'", with: "'\\''") + "'"
