@@ -16,7 +16,7 @@ struct SFTPFileItem: Identifiable, Equatable {
     /// 是否为隐藏文件/目录。
     var isHidden: Bool { name.hasPrefix(".") }
 
-    /// 是否为文本文件（用于双击/右键使用 fresh 编辑）。
+    /// 是否为文本文件（用于双击/右键使用配置的编辑器编辑）。
     /// 通过扩展名排除常见二进制格式；无扩展名或未知扩展名默认视为文本。
     var isTextFile: Bool {
         guard type == .file else { return false }

@@ -1519,3 +1519,15 @@ msgstr "身份已切回 SSH 登录时的用户。"
 
 msgid "Switch failed or the target user's shell is restricted. The identity has been switched back to the login user."
 msgstr "切换失败或目标用户的 shell 受限。身份已回退到 SSH 登录时的用户。"
+
+msgid "Editor"
+msgstr "编辑器"
+
+msgid "The editor used to edit files and open directories in SFTP."
+msgstr "SFTP 中编辑文件和打开目录时使用的编辑器。"
+
+msgid "Open Directory with %@"
+msgstr "使用 %@ 打开目录"
+
+msgid "Edit with %@"
+msgstr "使用 %@ 编辑"

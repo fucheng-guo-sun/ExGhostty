@@ -617,17 +617,25 @@ final class SFTPPanelViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Fresh
+    // MARK: - 编辑器
 
     /// 等待用户确认是否安装 fresh；确认后会触发安装并继续打开目标。
     @Published var freshInstallPendingItem: SFTPFileItem? = nil
 
-    /// 检查 fresh 是否已安装，已安装则在终端执行 fresh；未安装则弹出确认对话框。
-    func checkFreshAndOpen(item: SFTPFileItem) async {
+    /// 用配置的编辑器打开目标。fresh 需要先检查安装（未安装弹出确认对话框）；
+    /// 其他编辑器（vim/nano 等）通常系统自带，直接在终端执行。
+    func checkEditorAndOpen(item: SFTPFileItem) async {
+        let editor = SettingsTerminalEditor.current
+        if editor != .fresh {
+            await MainActor.run {
+                self.openWithEditor(item: item)
+            }
+            return
+        }
         do {
             if try await isFreshInstalled() {
                 await MainActor.run {
-                    self.openWithFresh(item: item)
+                    self.openWithEditor(item: item)
                 }
             } else {
                 await MainActor.run {
@@ -648,11 +656,11 @@ final class SFTPPanelViewModel: ObservableObject {
         sendCommandToTerminal(installCommand)
     }
 
-    /// 在终端中执行 "fresh <目标路径>"，用于编辑文本文件或打开目录。
+    /// 在终端中执行 "<编辑器> <目标路径>"，用于编辑文本文件或打开目录。
     @MainActor
-    func openWithFresh(item: SFTPFileItem) {
+    func openWithEditor(item: SFTPFileItem) {
         let remotePath = currentPath + "/" + item.name
-        sendCommandToTerminal("fresh \(remotePath)")
+        sendCommandToTerminal("\(SettingsTerminalEditor.current.rawValue) \(remotePath)")
     }
 
     /// 检测远端是否已安装 fresh。
@@ -975,7 +983,7 @@ struct SFTPPanelView: View {
                 }
             } else if item.isTextFile {
                 Task {
-                    await viewModel.checkFreshAndOpen(item: item)
+                    await viewModel.checkEditorAndOpen(item: item)
                 }
             }
         }
@@ -1014,23 +1022,24 @@ struct SFTPPanelView: View {
         }
     }
 
-    /// fresh 编辑/打开菜单：文本文件显示“使用 fresh 编辑”，目录显示“使用 fresh 打开目录”。
+    /// fresh 编辑/打开菜单：文本文件显示“使用 <编辑器> 编辑”，目录显示“使用 <编辑器> 打开目录”。
     @ViewBuilder
     private func freshContextMenu(item: SFTPFileItem) -> some View {
         let selectedCount = viewModel.selectedItems.count
         let isSelected = viewModel.selectedItems.contains(item.id)
+        let editor = SettingsTerminalEditor.current.rawValue
 
         if selectedCount <= 1 || !isSelected {
             if item.isDirectory {
-                Button("Open Directory with fresh".localized) {
+                Button(L("Open Directory with %@", editor)) {
                     Task {
-                        await viewModel.checkFreshAndOpen(item: item)
+                        await viewModel.checkEditorAndOpen(item: item)
                     }
                 }
             } else if item.isTextFile {
-                Button("Edit with fresh".localized) {
+                Button(L("Edit with %@", editor)) {
                     Task {
-                        await viewModel.checkFreshAndOpen(item: item)
+                        await viewModel.checkEditorAndOpen(item: item)
                     }
                 }
             }

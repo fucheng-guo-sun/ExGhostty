@@ -224,6 +224,7 @@ final class SettingsModel: ObservableObject {
 
     // General
     @Published var language: String = "en"
+    @Published var editor: SettingsTerminalEditor = .fresh
 
     // Appearance
     @Published var theme: String = ""
@@ -398,6 +399,7 @@ final class SettingsModel: ObservableObject {
         aiEndpoint = ud.string(forKey: "ai-endpoint") ?? ""
         aiApiKey = ud.string(forKey: "ai-apikey") ?? ""
         aiModel = ud.string(forKey: "ai-model") ?? ""
+        editor = SettingsTerminalEditor(rawValue: ud.string(forKey: "editor") ?? "") ?? .fresh
         // 默认开启：仅对从未设置过该开关的用户生效。
         iCloudSync = ud.object(forKey: "icloud-sync") as? Bool ?? true
     }
@@ -462,6 +464,7 @@ final class SettingsModel: ObservableObject {
         ud.set(aiEndpoint, forKey: "ai-endpoint")
         ud.set(aiApiKey, forKey: "ai-apikey")
         ud.set(aiModel, forKey: "ai-model")
+        ud.set(editor.rawValue, forKey: "editor")
         ud.set(iCloudSync, forKey: "icloud-sync")
 
         (NSApp.delegate as? AppDelegate)?.ghostty.reloadConfig()
@@ -498,6 +501,20 @@ enum SettingsMacShortcuts: String, CaseIterable {
 
 enum SettingsAsyncBackend: String, CaseIterable {
     case auto, epoll, io_uring
+}
+
+/// SFTP 编辑文件/打开目录使用的终端编辑器（设置窗口 General 中配置）。
+/// 存在 UserDefaults（libghostty 不认识该配置键），默认 fresh。
+enum SettingsTerminalEditor: String, CaseIterable, Identifiable {
+    case fresh, vim, nvim, nano, emacs, micro
+
+    var id: String { rawValue }
+
+    /// 当前用户配置的编辑器。
+    static var current: SettingsTerminalEditor {
+        let raw = UserDefaults.ghostty.string(forKey: "editor") ?? "fresh"
+        return SettingsTerminalEditor(rawValue: raw) ?? .fresh
+    }
 }
 
 enum SettingsCategory: String, CaseIterable, Identifiable {
@@ -652,6 +669,20 @@ struct SettingsView: View {
             }
 
             Text("Language changes will take effect after restarting ExGhostty.".localized)
+                .font(.system(size: 11))
+                .foregroundColor(.secondary)
+
+            settingsRow(label: "Editor".localized) {
+                Picker("", selection: $model.editor) {
+                    ForEach(SettingsTerminalEditor.allCases) { editor in
+                        Text(editor.rawValue).tag(editor)
+                    }
+                }
+                .pickerStyle(.menu)
+                .frame(width: 180)
+            }
+
+            Text("The editor used to edit files and open directories in SFTP.".localized)
                 .font(.system(size: 11))
                 .foregroundColor(.secondary)
 

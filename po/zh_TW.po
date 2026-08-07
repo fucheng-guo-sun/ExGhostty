@@ -1515,3 +1515,15 @@ msgstr "身份已切回 SSH 登入時的使用者。"
 
 msgid "Switch failed or the target user's shell is restricted. The identity has been switched back to the login user."
 msgstr "切換失敗或目標使用者的 shell 受限。身份已回退到 SSH 登入時的使用者。"
+
+msgid "Editor"
+msgstr "編輯器"
+
+msgid "The editor used to edit files and open directories in SFTP."
+msgstr "SFTP 中編輯檔案和開啟目錄時使用的編輯器。"
+
+msgid "Open Directory with %@"
+msgstr "使用 %@ 開啟目錄"
+
+msgid "Edit with %@"
+msgstr "使用 %@ 編輯"
