@@ -18,14 +18,17 @@ final class SSHIdentityStore: ObservableObject, @unchecked Sendable {
         let sudoPassword: String?
     }
 
-    /// key 为 connection.id；没有条目表示以登录用户身份执行。只在主线程修改。
+    /// key 为 connection.identityKey（终端会话标识，同一连接配置开的多个终端互不影响）；
+    /// 没有条目表示以登录用户身份执行。只在主线程修改。
     @Published private(set) var identities: [UUID: Identity] = [:]
 
     /// identities 的加锁快照，供非主线程同步读取。
     private let lock = NSLock()
     private var snapshot: [UUID: Identity] = [:]
 
-    /// 验证通过的 sudo 密码（仅内存，按连接保存，App 重启后失效）。只在主线程读写。
+    /// 验证通过的 sudo 密码（仅内存，App 重启后失效）。只在主线程读写。
+    /// 按 connection.id（连接配置）保存：sudo 密码属于登录用户，同配置的终端间共享，
+    /// 避免每个新终端重复弹输入框。
     private var savedSudoPasswords: [UUID: String] = [:]
 
     private init() {}
@@ -73,10 +76,23 @@ final class SSHIdentityStore: ObservableObject, @unchecked Sendable {
     ///
     /// 有密码时通过 `sudo -S` 从 stdin 读密码；无密码时用 `sudo -n`（依赖 NOPASSWD，
     /// 否则会失败并把错误透传给调用方）。
-    static func wrap(remoteCommand: String, as identity: Identity, loginUsername: String) -> String {
+    /// useTargetShell 为 true 时用目标用户的登录 shell 执行（sudo -s -c），与 `su -`
+    /// 语义一致——可提前发现「该用户不可登录」（nologin 等）的情况，供切换前验证使用。
+    static func wrap(remoteCommand: String, as identity: Identity, loginUsername: String, useTargetShell: Bool = false) -> String {
         guard identity.username != loginUsername else { return remoteCommand }
         let quotedCommand = shellQuote(remoteCommand)
         let quotedUser = shellQuote(identity.username)
+        // useTargetShell：用目标用户的登录 shell 执行（sudo -s），与 `su -` 语义一致，
+        // 可提前发现「该用户不可登录」（nologin 等）的情况，供切换前验证使用。
+        // 注意两个坑：sudo 自己的 -c 选项是 --close-from，不能写 -s -c；
+        // 且 sudo 会把含空格的单个参数整体加引号传给 shell -c（被当作一个命令名），
+        // 因此 -s 路径的命令必须保持原样不加引号（该路径仅用于固定的 `id -un` 验证）。
+        if useTargetShell {
+            if let password = identity.sudoPassword, !password.isEmpty {
+                return "echo \(shellQuote(password)) | sudo -S -p '' -u \(quotedUser) -s \(remoteCommand)"
+            }
+            return "sudo -n -u \(quotedUser) -s \(remoteCommand)"
+        }
         if let password = identity.sudoPassword, !password.isEmpty {
             return "echo \(shellQuote(password)) | sudo -S -p '' -u \(quotedUser) sh -c \(quotedCommand)"
         }

@@ -293,7 +293,7 @@ actor SFTPService {
     /// 说明：rsync 协议流占用 stdin，无法走 sudo -S 密码通道，只能依赖 NOPASSWD（sudo -n）；
     /// 需要 sudo 密码的主机上，切换身份后的传输会失败并体现在任务错误中。
     private func applyIdentityToRsyncArgs(_ args: inout [String], connection: SSHConnection) {
-        guard let identity = SSHIdentityStore.shared.identity(for: connection.id),
+        guard let identity = SSHIdentityStore.shared.identity(for: connection.identityKey),
               identity.username != connection.username else { return }
         args += ["--rsync-path", "sudo -n -u \(identity.username) rsync"]
     }

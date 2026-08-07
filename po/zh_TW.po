@@ -1507,11 +1507,11 @@ msgstr "找不到使用者"
 msgid "Identity switch failed"
 msgstr "身份切換失敗"
 
-msgid "Failed to exit the current identity (current terminal user: %@)."
-msgstr "退出目前身份失敗（終端目前使用者：%@）。"
+msgid "The target user is not allowed to log in"
+msgstr "目標使用者不是可登入的使用者"
 
-msgid "Failed to switch identity (current terminal user: %@). The sudo password may be incorrect or sudo is unavailable."
-msgstr "切換身份失敗（終端目前使用者：%@）。可能是 sudo 密碼錯誤或 sudo 不可用。"
+msgid "The identity has been switched back to the login user."
+msgstr "身份已切回 SSH 登入時的使用者。"
 
-msgid "unknown"
-msgstr "未知"
+msgid "Switch failed or the target user's shell is restricted. The identity has been switched back to the login user."
+msgstr "切換失敗或目標使用者的 shell 受限。身份已回退到 SSH 登入時的使用者。"

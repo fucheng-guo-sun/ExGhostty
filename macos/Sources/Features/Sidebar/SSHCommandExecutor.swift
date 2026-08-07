@@ -47,12 +47,14 @@ actor SSHCommandExecutor {
     private init() {}
 
     /// 执行任意远程命令并返回标准输出。
+    /// useTargetShell 仅用于身份切换前的验证（以目标用户的登录 shell 执行）。
     func execute(
         remoteCommand: String,
-        connection: SSHConnection
+        connection: SSHConnection,
+        useTargetShell: Bool = false
     ) async throws -> String {
         let backend = try backend(for: connection)
-        let command = await effectiveCommand(remoteCommand, for: connection)
+        let command = await effectiveCommand(remoteCommand, for: connection, useTargetShell: useTargetShell)
         let args = connection.sshBaseArgs.split(separator: " ").map(String.init) + [command]
         let invocation = try backend.sshInvocation(args: args)
         return try await runCommand(invocation)
@@ -77,11 +79,11 @@ actor SSHCommandExecutor {
     }
 
     /// 若「用户身份」面板为该连接切换了有效用户，则把命令包装为以该用户身份执行。
-    private func effectiveCommand(_ remoteCommand: String, for connection: SSHConnection) async -> String {
-        guard let identity = SSHIdentityStore.shared.identity(for: connection.id) else {
+    private func effectiveCommand(_ remoteCommand: String, for connection: SSHConnection, useTargetShell: Bool = false) async -> String {
+        guard let identity = SSHIdentityStore.shared.identity(for: connection.identityKey) else {
             return remoteCommand
         }
-        return SSHIdentityStore.wrap(remoteCommand: remoteCommand, as: identity, loginUsername: connection.username)
+        return SSHIdentityStore.wrap(remoteCommand: remoteCommand, as: identity, loginUsername: connection.username, useTargetShell: useTargetShell)
     }
 
     /// 为指定连接建立一个 SSH ControlMaster 通道，并在通道可用期间执行 `operation`。

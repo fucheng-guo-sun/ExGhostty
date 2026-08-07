@@ -107,6 +107,14 @@ struct SSHConnection: Identifiable, Codable, Hashable {
     /// 是否启用 X11 转发
     var x11Forwarding: Bool
 
+    /// 终端会话标识：每打开一个 SSH/Telnet 终端时生成，仅存在于运行时（不参与持久化），
+    /// 用于让「用户身份」等按终端隔离的状态互不影响——同一连接配置开多个终端时，
+    /// connection.id 相同，无法区分。
+    var sessionID: UUID? = nil
+
+    /// 「用户身份」等按终端隔离状态的存储键：优先会话标识，否则退化为连接配置 id。
+    var identityKey: UUID { sessionID ?? id }
+
     init(
         id: UUID = UUID(),
         name: String,
