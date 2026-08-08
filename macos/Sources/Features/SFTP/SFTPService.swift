@@ -273,8 +273,9 @@ actor SFTPService {
             if compress { args.append("-z") }
             self.applyIdentityToRsyncArgs(&args, connection: connection)
             args.append(localPath)
-            // 远程路径由远端 shell 解析，含空格时会被拆分，必须加引号。
-            args.append("\(connection.host):\(remotePath.singleQuotedShellArgument())")
+            // 远程路径由远端 shell 解析，含空格时会被拆分，必须加引号；
+            // host 去除首尾空白（存量配置可能带尾随空格，会导致 rsync 报 hostname 非法）。
+            args.append("\(connection.host.trimmingCharacters(in: .whitespaces)):\(remotePath.singleQuotedShellArgument())")
             try await self.runRsync(args: args, task: task, progressOffset: progressOffset, progressScale: progressScale)
         }
     }
@@ -292,8 +293,8 @@ actor SFTPService {
             var args = ["--partial", "--progress", "-e", "ssh -S \(socket)"]
             if compress { args.append("-z") }
             self.applyIdentityToRsyncArgs(&args, connection: connection)
-            // 远程路径由远端 shell 解析，含空格时会被拆分，必须加引号。
-            args.append("\(connection.host):\(remotePath.singleQuotedShellArgument())")
+            // 远程路径由远端 shell 解析，含空格时会被拆分，必须加引号；host 去除首尾空白。
+            args.append("\(connection.host.trimmingCharacters(in: .whitespaces)):\(remotePath.singleQuotedShellArgument())")
             args.append(localPath)
             try await self.runRsync(args: args, task: task, progressOffset: progressOffset, progressScale: progressScale)
         }

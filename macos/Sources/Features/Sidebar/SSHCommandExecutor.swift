@@ -239,7 +239,6 @@ private final class KeySSHBackend: BaseSSHBackend {
 
 private final class PasswordSSHBackend: BaseSSHBackend {
     private var askpassHelperURLCache: URL?
-    private var expectHelperURLCache: URL?
 
     override func sshInvocation(args: [String]) throws -> SSHCommandInvocation {
         guard FileManager.default.fileExists(atPath: "/usr/bin/ssh") else {
@@ -261,20 +260,12 @@ private final class PasswordSSHBackend: BaseSSHBackend {
     }
 
     override func controlMasterInvocation(args: [String]) throws -> SSHCommandInvocation {
-        guard FileManager.default.fileExists(atPath: "/usr/bin/ssh") else {
-            throw SSHCommandError.commandNotFound("ssh")
-        }
-        guard !connection.password.isEmpty else {
-            throw SSHCommandError.executionFailed(command: "ssh", stdout: "", stderr: "Password is empty".localized, status: 1)
-        }
-        let helper = try expectHelperURL()
-        var env = ProcessInfo.processInfo.environment
-        env["SSHPASS"] = connection.password
-        return SSHCommandInvocation(
-            executableURL: URL(fileURLWithPath: "/usr/bin/expect"),
-            arguments: [helper.path, URL(fileURLWithPath: "/usr/bin/ssh").path] + args,
-            environment: env
-        )
+        // 与 execute 保持一致，用 SSH_ASKPASS 提供密码，不用 expect 匹配提示符：
+        // 部分机器的密码提示措辞不匹配 "password:"（如 "Password for user@host:"、
+        // 二次认证的 "Verification code:"），expect 会空等超时（exit 1），
+        // 导致控制通道建立失败（SFTP 上传/下载报错）。
+        // 已实测：ssh -f 后台化会正确脱离标准输出/错误管道，不会造成读取方挂起。
+        return try sshInvocation(args: args)
     }
 
     private func askpassHelperURL() throws -> URL {
@@ -288,33 +279,6 @@ private final class PasswordSSHBackend: BaseSSHBackend {
         try script.write(to: url, atomically: true, encoding: .utf8)
         try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
         askpassHelperURLCache = url
-        return url
-    }
-
-    private func expectHelperURL() throws -> URL {
-        if let url = expectHelperURLCache { return url }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ghostty_ssh_expect.exp")
-        let script = """
-        #!/usr/bin/expect -f
-        set password $env(SSHPASS)
-        set timeout 30
-        set sshCmd [lindex $argv 0]
-        set sshArgs [lrange $argv 1 end]
-        log_user 0
-        spawn $sshCmd {*}$sshArgs
-        expect {
-            -nocase "password:" { send "$password\\r" }
-            timeout { exit 1 }
-            eof { exit 1 }
-        }
-        # 密码已发送，等待 ssh 完成认证并 fork 成控制通道；超时缩短为 10 秒。
-        set timeout 10
-        expect eof
-        """
-        try script.write(to: url, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-        expectHelperURLCache = url
         return url
     }
 }

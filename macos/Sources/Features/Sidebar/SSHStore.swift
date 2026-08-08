@@ -40,6 +40,10 @@ class SSHStore: ObservableObject {
     // MARK: - CRUD 连接
 
     func addConnection(_ conn: SSHConnection) {
+        var conn = conn
+        // 主机名去除首尾空白：带空格的 host 会让 rsync 的 host:path 解析失败
+        // （"hostname contains invalid characters"），ssh 因按空格拆分参数不受影响。
+        conn.host = conn.host.trimmingCharacters(in: .whitespaces)
         connections.append(conn)
         save()
     }
@@ -62,6 +66,8 @@ class SSHStore: ObservableObject {
 
     func updateConnection(_ conn: SSHConnection) {
         guard let i = connections.firstIndex(where: { $0.id == conn.id }) else { return }
+        var conn = conn
+        conn.host = conn.host.trimmingCharacters(in: .whitespaces)
         connections[i] = conn
         save()
     }
