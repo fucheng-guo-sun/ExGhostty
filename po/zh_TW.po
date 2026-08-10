@@ -1516,6 +1516,18 @@ msgstr "身份已切回 SSH 登入時的使用者。"
 msgid "Switch failed or the target user's shell is restricted. The identity has been switched back to the login user."
 msgstr "切換失敗或目標使用者的 shell 受限。身份已回退到 SSH 登入時的使用者。"
 
+msgid "Target User"
+msgstr "目標使用者"
+
+msgid "Sudo Password"
+msgstr "sudo 密碼"
+
+msgid "Password for the sudo prompt"
+msgstr "用於回答 sudo 密碼提示"
+
+msgid "After login, automatically switch to the target user via sudo su. SFTP, Docker and other features will also run as this user."
+msgstr "登入後自動透過 sudo su 切換到目標使用者，SFTP、Docker 等功能也將以該使用者身份執行。"
+
 msgid "Editor"
 msgstr "編輯器"
 

@@ -26,12 +26,6 @@ struct FunctionPanelView: View {
             } else {
                 placeholder("Connect via SSH first".localized)
             }
-        case .userIdentity:
-            if let connection = terminalController?.sshConnection {
-                UserIdentityPanelView(connection: connection, terminalController: terminalController)
-            } else {
-                placeholder("Connect via SSH first".localized)
-            }
         case .portForward:
             PortForwardListView()
         case .portUsage:

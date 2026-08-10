@@ -47,20 +47,19 @@ actor SSHCommandExecutor {
     private init() {}
 
     /// 执行任意远程命令并返回标准输出。
-    /// useTargetShell 仅用于身份切换前的验证（以目标用户的登录 shell 执行）。
+    /// 连接配置启用「用户身份」时，命令自动包装为以目标用户身份执行。
     func execute(
         remoteCommand: String,
-        connection: SSHConnection,
-        useTargetShell: Bool = false
+        connection: SSHConnection
     ) async throws -> String {
         let backend = try backend(for: connection)
-        let command = await effectiveCommand(remoteCommand, for: connection, useTargetShell: useTargetShell)
+        let command = effectiveCommand(remoteCommand, for: connection)
         let args = connection.sshBaseArgs.split(separator: " ").map(String.init) + [command]
         let invocation = try backend.sshInvocation(args: args)
         return try await runCommand(invocation)
     }
 
-    /// 以登录用户身份执行远程命令（忽略「用户身份」切换），
+    /// 以登录用户身份执行远程命令（忽略「用户身份」配置），
     /// 用于部署 sudo askpass 助手等必须由登录用户持有的基础设施命令。
     func executeAsLoginUser(
         remoteCommand: String,
@@ -80,7 +79,7 @@ actor SSHCommandExecutor {
         connection: SSHConnection
     ) async throws -> SSHStreamingInvocation {
         let backend = try backend(for: connection)
-        let command = await effectiveCommand(remoteCommand, for: connection)
+        let command = effectiveCommand(remoteCommand, for: connection)
         let args = connection.sshBaseArgs.split(separator: " ").map(String.init) + [command]
         let invocation = try backend.sshInvocation(args: args)
         return SSHStreamingInvocation(
@@ -90,12 +89,12 @@ actor SSHCommandExecutor {
         )
     }
 
-    /// 若「用户身份」面板为该连接切换了有效用户，则把命令包装为以该用户身份执行。
-    private func effectiveCommand(_ remoteCommand: String, for connection: SSHConnection, useTargetShell: Bool = false) async -> String {
-        guard let identity = SSHIdentityStore.shared.identity(for: connection.identityKey) else {
+    /// 若连接配置启用了「用户身份」，则把命令包装为以目标用户身份执行。
+    private func effectiveCommand(_ remoteCommand: String, for connection: SSHConnection) -> String {
+        guard let identity = connection.effectiveIdentity else {
             return remoteCommand
         }
-        return SSHIdentityStore.wrap(remoteCommand: remoteCommand, as: identity, loginUsername: connection.username, useTargetShell: useTargetShell)
+        return SSHIdentity.wrap(remoteCommand: remoteCommand, as: identity, loginUsername: connection.username)
     }
 
     /// 为指定连接建立一个 SSH ControlMaster 通道，并在通道可用期间执行 `operation`。

@@ -460,10 +460,7 @@ class SidebarSplitViewController: NSViewController, NSSplitViewDelegate {
         if let ctrl {
             ctrl.baseTitle = conn.name
             ctrl.titleOverride = conn.name
-            // 每个终端生成独立的会话标识，「用户身份」等按终端隔离的状态以此为键。
-            var sessionConn = conn
-            sessionConn.sessionID = UUID()
-            ctrl.sshConnection = sessionConn
+            ctrl.sshConnection = conn
             DispatchQueue.main.async {
                 if let splitVC = ctrl.window?.contentViewController as? SidebarSplitViewController {
                     splitVC.rebuildTabBar()
@@ -481,10 +478,7 @@ class SidebarSplitViewController: NSViewController, NSSplitViewDelegate {
         if let ctrl {
             ctrl.baseTitle = conn.name
             ctrl.titleOverride = conn.name
-            // 每个终端生成独立的会话标识，「用户身份」等按终端隔离的状态以此为键。
-            var sessionConn = conn
-            sessionConn.sessionID = UUID()
-            ctrl.sshConnection = sessionConn
+            ctrl.sshConnection = conn
             DispatchQueue.main.async {
                 if let splitVC = ctrl.window?.contentViewController as? SidebarSplitViewController {
                     splitVC.rebuildTabBar()

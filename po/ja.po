@@ -1378,3 +1378,18 @@ msgstr "接続パスワード（任意）"
 
 msgid "Some devices require a connection password before login."
 msgstr "一部のデバイスでは、ログイン前に接続パスワードが必要です。"
+
+msgid "User Identity"
+msgstr "ユーザー身份"
+
+msgid "Target User"
+msgstr "対象ユーザー"
+
+msgid "Sudo Password"
+msgstr "sudo パスワード"
+
+msgid "Password for the sudo prompt"
+msgstr "sudo プロンプトに応答するパスワード"
+
+msgid "After login, automatically switch to the target user via sudo su. SFTP, Docker and other features will also run as this user."
+msgstr "ログイン後、sudo su で対象ユーザーに自動的に切り替えます。SFTP、Docker などの機能もこのユーザーとして実行されます。"

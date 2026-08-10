@@ -107,13 +107,22 @@ struct SSHConnection: Identifiable, Codable, Hashable {
     /// 是否启用 X11 转发
     var x11Forwarding: Bool
 
-    /// 终端会话标识：每打开一个 SSH/Telnet 终端时生成，仅存在于运行时（不参与持久化），
-    /// 用于让「用户身份」等按终端隔离的状态互不影响——同一连接配置开多个终端时，
-    /// connection.id 相同，无法区分。
-    var sessionID: UUID? = nil
+    /// 用户身份：登录后自动 sudo su 到指定用户，后续一切远程操作
+    /// （SFTP、Docker、System Monitor 等）均以该用户身份执行。
+    var identitySwitchEnabled: Bool
+    /// 要切换到的目标用户名
+    var identityUsername: String
+    /// 切换时回答 sudo 密码提示的密码（内存中为明文；持久化时经 AES 加密存储）
+    var identityPassword: String
 
-    /// 「用户身份」等按终端隔离状态的存储键：优先会话标识，否则退化为连接配置 id。
-    var identityKey: UUID { sessionID ?? id }
+    /// 配置的有效用户身份；未启用、用户名为空或与登录用户相同时为 nil。
+    var effectiveIdentity: SSHIdentity.Identity? {
+        guard identitySwitchEnabled, !identityUsername.isEmpty, identityUsername != username else { return nil }
+        return SSHIdentity.Identity(
+            username: identityUsername,
+            sudoPassword: identityPassword.isEmpty ? nil : identityPassword
+        )
+    }
 
     init(
         id: UUID = UUID(),
@@ -133,7 +142,10 @@ struct SSHConnection: Identifiable, Codable, Hashable {
         timeoutMs: UInt32 = 30000,
         heartbeatMs: UInt32 = 30000,
         encoding: String = SSHTerminalEncoding.utf8.rawValue,
-        x11Forwarding: Bool = false
+        x11Forwarding: Bool = false,
+        identitySwitchEnabled: Bool = false,
+        identityUsername: String = "",
+        identityPassword: String = ""
     ) {
         self.id = id
         self.name = name
@@ -153,6 +165,9 @@ struct SSHConnection: Identifiable, Codable, Hashable {
         self.heartbeatMs = heartbeatMs
         self.encoding = encoding
         self.x11Forwarding = x11Forwarding
+        self.identitySwitchEnabled = identitySwitchEnabled
+        self.identityUsername = identityUsername
+        self.identityPassword = identityPassword
     }
 
     init(from decoder: Decoder) throws {
@@ -178,6 +193,9 @@ struct SSHConnection: Identifiable, Codable, Hashable {
         self.heartbeatMs = try container.decodeIfPresent(UInt32.self, forKey: .heartbeatMs) ?? 30000
         self.encoding = try container.decodeIfPresent(String.self, forKey: .encoding) ?? SSHTerminalEncoding.utf8.rawValue
         self.x11Forwarding = try container.decodeIfPresent(Bool.self, forKey: .x11Forwarding) ?? false
+        self.identitySwitchEnabled = try container.decodeIfPresent(Bool.self, forKey: .identitySwitchEnabled) ?? false
+        self.identityUsername = try container.decodeIfPresent(String.self, forKey: .identityUsername) ?? ""
+        self.identityPassword = PasswordCipher.decrypt(try container.decodeIfPresent(String.self, forKey: .identityPassword) ?? "")
     }
 
     func encode(to encoder: Encoder) throws {
@@ -201,139 +219,16 @@ struct SSHConnection: Identifiable, Codable, Hashable {
         try container.encode(heartbeatMs, forKey: .heartbeatMs)
         try container.encode(encoding, forKey: .encoding)
         try container.encode(x11Forwarding, forKey: .x11Forwarding)
+        try container.encode(identitySwitchEnabled, forKey: .identitySwitchEnabled)
+        try container.encode(identityUsername, forKey: .identityUsername)
+        try container.encode(PasswordCipher.encrypt(identityPassword), forKey: .identityPassword)
     }
 
     private enum CodingKeys: String, CodingKey {
         case id, name, host, port, username, groupID, type
         case authMode, password, connectionPassword, keyPath, connectionMethod, jumpHostID, notes
         case timeoutMs, heartbeatMs, encoding, x11Forwarding
-    }
-
-    /// 生成用于 Ghostty 终端的 SurfaceConfiguration，包含 expect 包装、自动登录、断线重连。
-    func makeGhosttySurfaceConfiguration() -> Ghostty.SurfaceConfiguration {
-        var cfg = Ghostty.SurfaceConfiguration()
-        cfg.environmentVariables["TERM"] = "xterm-256color"
-
-        let scriptURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ghostty_ssh_\(id.uuidString).exp")
-        let logURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ghostty_ssh_\(id.uuidString).log")
-        let logPath = logURL.path
-        let reconnectPrompt = "Press any key to reconnect".localized.tclEscaped
-
-        let expectScript: String
-        if authMode == .password, !password.isEmpty {
-            // 密码通过 SSH_ASKPASS 助手提供给 ssh，而不是用 expect 匹配 "password:" 提示：
-            // 当服务器同时接受本地密钥时，密钥认证先行成功，根本不会出现密码提示，
-            // expect 会空等整个 timeout（15 秒），表现为"连接很慢"。
-            // askpass 方式下密钥/密码两种认证路径都无需等待。
-            let askpassURL = FileManager.default.temporaryDirectory
-                .appendingPathComponent("ghostty_ssh_askpass.sh")
-            let askpassScript = """
-            #!/bin/bash
-            printf '%s\\n' "$GHOSTTY_ASKPASS_PASSWORD"
-            """
-            try? askpassScript.write(to: askpassURL, atomically: true, encoding: .utf8)
-            try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: askpassURL.path)
-
-            expectScript = """
-            set timeout 15
-            set logfile [open "\(logPath)" "a"]
-            proc sshlog {msg} {
-                global logfile
-                puts $logfile "[clock format [clock seconds]] $msg"
-                flush $logfile
-            }
-            proc sync_ssh_pty {spawn_id} {
-                if {[catch {
-                    # 通过外部 /bin/stty 读取本地终端尺寸，避免 expect 内置 stty 读到 ssh 子进程 PTY。
-                    set size [exec /bin/stty size]
-                    sshlog "local stty size: $size"
-                    set rows [lindex $size 0]
-                    set cols [lindex $size 1]
-                    stty rows $rows columns $cols < $spawn_id
-                    sshlog "set ssh pty to $rows $cols"
-                } err]} {
-                    sshlog "sync pty failed: $err"
-                }
-            }
-            trap { sshlog "SIGTERM ignored" } SIGTERM
-            trap { sshlog "SIGINT ignored" } SIGINT
-            while {1} {
-                sshlog "spawn ssh"
-                log_user 1
-                spawn /usr/bin/ssh \(sshBaseArgs)
-                sync_ssh_pty $spawn_id
-                trap { sync_ssh_pty $spawn_id } SIGWINCH
-                interact
-                sshlog "interact returned"
-                puts ""
-                puts "\(reconnectPrompt)"
-                expect_user -re . {}
-                sshlog "reconnect key pressed"
-            }
-            """
-            cfg.environmentVariables["SSH_ASKPASS"] = askpassURL.path
-            cfg.environmentVariables["SSH_ASKPASS_REQUIRE"] = "force"
-            cfg.environmentVariables["GHOSTTY_ASKPASS_PASSWORD"] = password
-        } else {
-            expectScript = """
-            set logfile [open "\(logPath)" "a"]
-            proc sshlog {msg} {
-                global logfile
-                puts $logfile "[clock format [clock seconds]] $msg"
-                flush $logfile
-            }
-            proc sync_ssh_pty {spawn_id} {
-                if {[catch {
-                    # 通过外部 /bin/stty 读取本地终端尺寸，避免 expect 内置 stty 读到 ssh 子进程 PTY。
-                    set size [exec /bin/stty size]
-                    sshlog "local stty size: $size"
-                    set rows [lindex $size 0]
-                    set cols [lindex $size 1]
-                    stty rows $rows columns $cols < $spawn_id
-                    sshlog "set ssh pty to $rows $cols"
-                } err]} {
-                    sshlog "sync pty failed: $err"
-                }
-            }
-            trap { sshlog "SIGTERM ignored" } SIGTERM
-            trap { sshlog "SIGINT ignored" } SIGINT
-            while {1} {
-                sshlog "spawn ssh"
-                log_user 0
-                spawn /usr/bin/ssh \(sshBaseArgs)
-                sync_ssh_pty $spawn_id
-                trap { sync_ssh_pty $spawn_id } SIGWINCH
-                log_user 1
-                interact
-                sshlog "interact returned"
-                puts ""
-                puts "\(reconnectPrompt)"
-                expect_user -re . {}
-                sshlog "reconnect key pressed"
-            }
-            """
-        }
-
-        do {
-            try expectScript.write(to: scriptURL, atomically: true, encoding: .utf8)
-            cfg.command = "/usr/bin/expect \(scriptURL.path)"
-        } catch {
-            cfg.command = sshCommand
-        }
-
-        for (key, value) in terminalEnvironment {
-            cfg.environmentVariables[key] = value
-        }
-
-        if x11Forwarding {
-            for (key, value) in SSHX11Environment.current {
-                cfg.environmentVariables[key] = value
-            }
-        }
-
-        return cfg
+        case identitySwitchEnabled, identityUsername, identityPassword
     }
 
     /// 生成 SSH 选项参数字符串（不含主机名，用于 rsync 等需要自行指定主机的场景）。

@@ -64,9 +64,7 @@ enum SSHTester {
         onEvent: @escaping (SSHTestEvent) -> Void
     ) -> Task<Void, Never> {
         Task.detached {
-            NSLog("[SSHTester] test task started")
             await run(config: config, emit: onEvent)
-            NSLog("[SSHTester] test task finished")
         }
     }
 
@@ -89,7 +87,6 @@ enum SSHTester {
         config: SSHTestConfig,
         emit: @escaping (SSHTestEvent) -> Void
     ) async {
-        NSLog("[SSHTester] run started, host=%@:%@", config.host, String(config.port))
         guard FileManager.default.isExecutableFile(atPath: "/usr/bin/ssh") else {
             emit(.failure(TestError.sshNotFound.localizedDescription))
             return
@@ -150,14 +147,12 @@ enum SSHTester {
         emit(.log("$ ssh \(sshArgs.joined(separator: " "))"))
         emit(.step("Executing SSH test connection".localized))
 
-        NSLog("[SSHTester] starting ssh process")
         let result = await runProcess(
             executable: "/usr/bin/ssh",
             args: sshArgs,
             env: ["SSH_AUTH_SOCK": ""].merging(config.encodingEnvironment) { $1 },
             emit: emit
         )
-        NSLog("[SSHTester] ssh process finished, result=%@", String(describing: result))
 
         switch result {
         case .success:
@@ -165,7 +160,6 @@ enum SSHTester {
         case .failure(let error):
             emit(.failure(error.localizedDescription))
         }
-        NSLog("[SSHTester] run finished")
     }
 
     private static func testWithExpect(
@@ -236,14 +230,12 @@ enum SSHTester {
         emit(.log("$ ssh \(sshArgs)"))
         emit(.step("Executing expect password auto-entry test".localized))
 
-        NSLog("[SSHTester] starting expect process")
         let result = await runProcess(
             executable: "/usr/bin/expect",
             args: [tempURL.path],
             env: ["SSHPASS": config.password, "SSH_AUTH_SOCK": ""].merging(config.encodingEnvironment) { $1 },
             emit: emit
         )
-        NSLog("[SSHTester] expect process finished, result=%@", String(describing: result))
 
         switch result {
         case .success:
@@ -289,13 +281,9 @@ enum SSHTester {
         process.standardOutput = outPipe
         process.standardError = errPipe
 
-        NSLog("[SSHTester] runProcess launching: %@ %@", executable, args.joined(separator: " "))
-
         do {
             try process.run()
-            NSLog("[SSHTester] process launched, pid=%d", process.processIdentifier)
         } catch {
-            NSLog("[SSHTester] process launch failed: %@", error.localizedDescription)
             return .failure(error)
         }
 
@@ -303,7 +291,6 @@ enum SSHTester {
         let timeoutTask = Task {
             try? await Task.sleep(nanoseconds: UInt64(processTimeout * 1_000_000_000))
             if process.isRunning {
-                NSLog("[SSHTester] timeout, terminating process pid=%d", process.processIdentifier)
                 process.terminate()
             }
         }
@@ -311,38 +298,32 @@ enum SSHTester {
         var outBuffer = Data()
         var errBuffer = Data()
 
-        NSLog("[SSHTester] entering task group")
-
         return await withTaskCancellationHandler(operation: {
             await withTaskGroup(of: Void.self) { group in
                 group.addTask {
-                    NSLog("[SSHTester] stdout reader started")
                     do {
                         for try await byte in outPipe.fileHandleForReading.bytes {
                             outBuffer.append(byte)
                             flushBuffer(&outBuffer, emit: emit)
                         }
                     } catch {
-                        NSLog("[SSHTester] stdout reader ended: %@", error.localizedDescription)
+                        // 读取失败时结束该读取任务
                     }
                 }
 
                 group.addTask {
-                    NSLog("[SSHTester] stderr reader started")
                     do {
                         for try await byte in errPipe.fileHandleForReading.bytes {
                             errBuffer.append(byte)
                             flushBuffer(&errBuffer, emit: emit)
                         }
                     } catch {
-                        NSLog("[SSHTester] stderr reader ended: %@", error.localizedDescription)
+                        // 读取失败时结束该读取任务
                     }
                 }
 
                 group.addTask {
-                    NSLog("[SSHTester] waiting for process exit")
                     process.waitUntilExit()
-                    NSLog("[SSHTester] process exited, status=%d", process.terminationStatus)
                     timeoutTask.cancel()
 
                     // 终止可能仍在运行的子进程（例如 expect 启动的 ssh）。
@@ -354,11 +335,9 @@ enum SSHTester {
 
                 // 等待任一任务完成（通常是等待进程退出的任务），然后取消读取任务。
                 _ = await group.next()
-                NSLog("[SSHTester] first task completed, cancelling readers")
                 group.cancelAll()
                 // 等待被取消的任务结束。
                 while await group.next() != nil {}
-                NSLog("[SSHTester] task group finished")
 
                 flushBuffer(&outBuffer, emit: emit)
                 flushBuffer(&errBuffer, emit: emit)
@@ -376,7 +355,6 @@ enum SSHTester {
                 return .failure(TestError.connectionFailed(L("SSH process exit code %d", status)))
             }
         }, onCancel: {
-            NSLog("[SSHTester] runProcess cancelled, terminating process pid=%d", process.processIdentifier)
             process.terminate()
             let pid = Int32(process.processIdentifier)
             for child in ProcessInspector.childPIDs(of: pid) {

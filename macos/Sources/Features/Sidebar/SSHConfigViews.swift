@@ -41,6 +41,10 @@ struct SSHConfigFormView: View {
     @State private var heartbeatMs = "30000"
     @State private var encoding: String = SSHTerminalEncoding.utf8.rawValue
     @State private var x11Forwarding = false
+    @State private var identitySwitchEnabled = false
+    @State private var identityUsername = ""
+    @State private var identityPassword = ""
+    @State private var isIdentityPasswordVisible = false
     @State private var isPasswordVisible = false
     @State private var showAdvanced = false
 
@@ -77,6 +81,9 @@ struct SSHConfigFormView: View {
             _heartbeatMs = State(initialValue: String(conn.heartbeatMs))
             _encoding = State(initialValue: conn.encoding)
             _x11Forwarding = State(initialValue: conn.x11Forwarding)
+            _identitySwitchEnabled = State(initialValue: conn.identitySwitchEnabled)
+            _identityUsername = State(initialValue: conn.identityUsername)
+            _identityPassword = State(initialValue: conn.identityPassword)
         }
     }
 
@@ -91,6 +98,7 @@ struct SSHConfigFormView: View {
                     authSection
                     groupSection
                     connectionMethodSection
+                    identitySection
                     notesSection
                     advancedSection
                 }
@@ -339,6 +347,59 @@ struct SSHConfigFormView: View {
         return false
     }
 
+    // MARK: - 用户身份
+
+    /// 「用户身份」设置：登录后自动 sudo su 到目标用户，
+    /// 后续 SFTP、Docker 等一切远程操作均以该用户身份执行。
+    private var identitySection: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Toggle("User Identity".localized, isOn: $identitySwitchEnabled)
+                .font(.system(size: 12, weight: .medium))
+
+            if identitySwitchEnabled {
+                VStack(alignment: .leading, spacing: 6) {
+                    label("Target User".localized)
+                    TextField("e.g. root".localized, text: $identityUsername)
+                        .textFieldStyle(.plain)
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 6)
+                        .background(Color(.controlBackgroundColor))
+                        .cornerRadius(8)
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    label("Sudo Password".localized)
+                    HStack(spacing: 4) {
+                        if isIdentityPasswordVisible {
+                            TextField("Password for the sudo prompt".localized, text: $identityPassword)
+                                .textFieldStyle(.plain)
+                        } else {
+                            SecureField("Password for the sudo prompt".localized, text: $identityPassword)
+                                .textFieldStyle(.plain)
+                        }
+
+                        Button(action: { isIdentityPasswordVisible.toggle() }) {
+                            Image(systemName: isIdentityPasswordVisible ? "eye.slash" : "eye")
+                                .font(.system(size: 12))
+                                .foregroundColor(.secondary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(isIdentityPasswordVisible ? "Hide Password".localized : "Show Password".localized)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(Color(.controlBackgroundColor))
+                    .cornerRadius(8)
+                }
+
+                Text("After login, automatically switch to the target user via sudo su. SFTP, Docker and other features will also run as this user.".localized)
+                    .font(.system(size: 11))
+                    .foregroundColor(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
     // MARK: - 备注
 
     private var notesSection: some View {
@@ -490,7 +551,8 @@ struct SSHConfigFormView: View {
         // 只需必填项填写完整即可保存，不再要求通过 Test Connection。
         !name.isEmpty &&
         !host.isEmpty &&
-        (connectionMethod != .jumpHost || availableJumpHosts.contains(where: { $0.id == jumpHostID }))
+        (connectionMethod != .jumpHost || availableJumpHosts.contains(where: { $0.id == jumpHostID })) &&
+        (!identitySwitchEnabled || !identityUsername.isEmpty)
     }
 
     private var testSignature: String {
@@ -570,7 +632,6 @@ struct SSHConfigFormView: View {
         sheet.setContentSize(NSSize(width: 680, height: 420))
         sheet.isReleasedWhenClosed = false
 
-        NSLog("[SSHConfigViews] beginSheet for test connection")
         parent.beginSheet(sheet) { _ in }
     }
 
@@ -602,7 +663,10 @@ struct SSHConfigFormView: View {
                 timeoutMs: timeout,
                 heartbeatMs: heartbeat,
                 encoding: encoding,
-                x11Forwarding: x11Forwarding
+                x11Forwarding: x11Forwarding,
+                identitySwitchEnabled: identitySwitchEnabled,
+                identityUsername: identityUsername,
+                identityPassword: identityPassword
             )
         case .edit(let existing):
             conn = SSHConnection(
@@ -621,7 +685,10 @@ struct SSHConfigFormView: View {
                 timeoutMs: timeout,
                 heartbeatMs: heartbeat,
                 encoding: encoding,
-                x11Forwarding: x11Forwarding
+                x11Forwarding: x11Forwarding,
+                identitySwitchEnabled: identitySwitchEnabled,
+                identityUsername: identityUsername,
+                identityPassword: identityPassword
             )
         }
         onSave(conn)

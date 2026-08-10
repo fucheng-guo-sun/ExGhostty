@@ -83,12 +83,11 @@ actor SFTPService {
 
     /// 返回有效用户的主目录路径。
     ///
-    /// 注意不能用 `pwd`：新 SSH 会话总是落在登录用户的主目录，身份切换后
+    /// 注意不能用 `pwd`：新 SSH 会话总是落在登录用户的主目录，「用户身份」
     /// 包装为目标用户也不会改变会话的起始目录（会得到登录用户的 home）。
     /// 改为从 passwd 读取有效用户自己的 home。
     func currentRemoteDirectory(connection: SSHConnection) async throws -> String {
-        let username = SSHIdentityStore.shared.identity(for: connection.identityKey)?.username
-            ?? connection.username
+        let username = connection.effectiveIdentity?.username ?? connection.username
         let output = try await SSHCommandExecutor.shared.execute(
             remoteCommand: "(getent passwd \(username) 2>/dev/null || grep -m1 '^\(username):' /etc/passwd) | cut -d: -f6",
             connection: connection
@@ -268,6 +267,7 @@ actor SFTPService {
         progressScale: Double = 1,
         compress: Bool = false
     ) async throws {
+        await deploySudoAskpassIfNeeded(connection: connection)
         try await SSHCommandExecutor.shared.withControlChannel(connection: connection) { socket in
             var args = ["--partial", "--progress", "-e", "ssh -S \(socket)"]
             if compress { args.append("-z") }
@@ -289,6 +289,7 @@ actor SFTPService {
         progressScale: Double = 1,
         compress: Bool = false
     ) async throws {
+        await deploySudoAskpassIfNeeded(connection: connection)
         try await SSHCommandExecutor.shared.withControlChannel(connection: connection) { socket in
             var args = ["--partial", "--progress", "-e", "ssh -S \(socket)"]
             if compress { args.append("-z") }
@@ -300,18 +301,40 @@ actor SFTPService {
         }
     }
 
-    /// 「用户身份」切换后，rsync 需以有效用户身份在远端运行。
+    /// 「用户身份」启用时，rsync 需以目标用户身份在远端运行。
     /// rsync 协议流占用 stdin，无法走 sudo -S；有密码时用 sudo -A + SUDO_ASKPASS 助手
-    /// （助手在切换成功后由用户身份面板部署，700 权限、登录用户持有）；
+    /// （助手由 deploySudoAskpassIfNeeded 以登录用户身份部署，700 权限）；
     /// 无密码时用 sudo -n（依赖 NOPASSWD）。
     private func applyIdentityToRsyncArgs(_ args: inout [String], connection: SSHConnection) {
-        guard let identity = SSHIdentityStore.shared.identity(for: connection.identityKey),
-              identity.username != connection.username else { return }
+        guard let identity = connection.effectiveIdentity else { return }
         if let password = identity.sudoPassword, !password.isEmpty {
-            let askpass = SSHIdentityStore.sudoAskpassPath(connectionID: connection.id)
+            let askpass = SSHIdentity.sudoAskpassPath(connectionID: connection.id)
             args += ["--rsync-path", "SUDO_ASKPASS=\(askpass) sudo -A -u \(identity.username) rsync"]
         } else {
             args += ["--rsync-path", "sudo -n -u \(identity.username) rsync"]
+        }
+    }
+
+    /// 已部署 sudo askpass 助手的连接及对应密码（密码变更时重新部署）。
+    private var deployedSudoAskpass: [UUID: String] = [:]
+
+    /// 「用户身份」启用且有密码时，把 sudo askpass 助手部署到远端（幂等）：
+    /// 内容为输出 sudo 密码（base64 防特殊字符），权限 700、以登录用户身份写入
+    /// （sudo -A 由登录用户的 rsync 会话调用，必须对登录用户可执行）。
+    private func deploySudoAskpassIfNeeded(connection: SSHConnection) async {
+        guard let identity = connection.effectiveIdentity,
+              let password = identity.sudoPassword, !password.isEmpty else { return }
+        guard deployedSudoAskpass[connection.id] != password else { return }
+        let passwordB64 = Data(password.utf8).base64EncodedString()
+        let script = "#!/bin/sh\necho \(passwordB64) | base64 -d\n"
+        let scriptB64 = Data(script.utf8).base64EncodedString()
+        let path = SSHIdentity.sudoAskpassPath(connectionID: connection.id)
+        let deployed = (try? await SSHCommandExecutor.shared.executeAsLoginUser(
+            remoteCommand: "echo \(scriptB64) | base64 -d > \(path); chmod 700 \(path)",
+            connection: connection
+        )) != nil
+        if deployed {
+            deployedSudoAskpass[connection.id] = password
         }
     }
 

@@ -26,45 +26,20 @@ final class SFTPPanelViewModel: ObservableObject {
     /// 远端用户主目录，用于把标题中的 `~` 展开为绝对路径。
     private var remoteHomeDirectory: String?
     /// 根据用户名推断的默认远端主目录。root 用户为 /root，其他用户为 /home/<username>。
-    /// 「用户身份」切换后以有效用户为准。
+    /// 「用户身份」启用后以配置的目标用户为准。
     private var defaultHomeDirectory: String {
-        let username = SSHIdentityStore.shared.identity(for: connection.identityKey)?.username ?? connection.username
+        let username = connection.effectiveIdentity?.username ?? connection.username
         return username == "root" ? "/root" : "/home/\(username)"
     }
-
-    /// 当前生效的身份用户名，用于识别身份切换。
-    private var lastIdentityUsername: String
 
     init(connection: SSHConnection, terminalController: TerminalController?) {
         self.connection = connection
         self.terminalController = terminalController
-        self.lastIdentityUsername = connection.username
-        // 身份已切换时，currentDirectoryURL 可能是切换前注入留下的过期路径（属于登录用户），
-        // 不信任它，直接用有效用户的主目录；面板 onAppear 的注入会再刷新为终端真实 cwd。
-        let isSwitched = SSHIdentityStore.shared.identity(for: connection.identityKey) != nil
-        self.currentPath = (isSwitched ? nil : terminalController?.currentDirectoryURL?.path)
+        self.currentPath = terminalController?.currentDirectoryURL?.path
             ?? defaultHomeDirectory
 
-        // 「用户身份」切换后：跳到有效用户的主目录并重新加载。
-        SSHIdentityStore.shared.$identities
-            .receive(on: DispatchQueue.main)
-            .sink { [weak self] _ in
-                guard let self else { return }
-                let username = SSHIdentityStore.shared.identity(for: self.connection.identityKey)?.username
-                    ?? self.connection.username
-                guard username != self.lastIdentityUsername else { return }
-                self.lastIdentityUsername = username
-                // 清掉缓存的真实主目录，按新身份重新获取并修正路径。
-                self.remoteHomeDirectory = nil
-                self.currentPath = self.defaultHomeDirectory
-                self.fetchRemoteHomeDirectory()
-                self.refresh()
-            }
-            .store(in: &cancellables)
-
         // 终端通过 OSC 7 上报当前目录（需要远端 shell 启用了 Ghostty shell integration）。
-        // dropFirst：sink 订阅时会立即回放当前值，而 currentDirectoryURL 可能是身份切换前
-        // 注入留下的过期路径；初值已在上面读取，回放只会把路径盖回旧目录。
+        // dropFirst：sink 订阅时会立即回放当前值，而初值已在上面读取，回放没有意义。
         terminalController?.$currentDirectoryURL
             .dropFirst()
             .receive(on: DispatchQueue.main)
@@ -495,32 +470,24 @@ final class SFTPPanelViewModel: ObservableObject {
     /// 将当前目录下的条目移动到子目录中（拖拽触发）。
     /// 若被拖拽条目处于多选集合中，则移动整个选中集合。
     func moveItem(named name: String, intoDirectory directory: SFTPFileItem) async {
-        print("[SFTP Move] moveItem named=\(name) intoDirectory=\(directory.name) currentPath=\(currentPath)")
         guard directory.isDirectory, name != directory.name else {
-            print("[SFTP Move] abort: not directory or same name")
             return
         }
         let selected = items.filter { selectedItems.contains($0.id) }
         let entries: [SFTPFileItem]
         if selected.count > 1, selected.contains(where: { $0.name == name }) {
             entries = selected
-            print("[SFTP Move] moving selected entries: \(entries.map { $0.name })")
         } else if let single = items.first(where: { $0.name == name }) {
             entries = [single]
-            print("[SFTP Move] moving single entry: \(single.name)")
         } else {
-            print("[SFTP Move] abort: entry not found for name=\(name)")
             return
         }
         for entry in entries where entry.id != directory.id {
             let source = currentPath + "/" + entry.name
             let destination = currentPath + "/" + directory.name + "/" + entry.name
-            print("[SFTP Move] rename \(source) -> \(destination)")
             do {
                 try await SFTPService.shared.rename(connection: connection, from: source, to: destination)
-                print("[SFTP Move] rename success")
             } catch {
-                print("[SFTP Move] rename error: \(error)")
                 await MainActor.run {
                     self.errorMessage = error.localizedDescription
                 }
@@ -528,7 +495,6 @@ final class SFTPPanelViewModel: ObservableObject {
             }
         }
         await MainActor.run {
-            print("[SFTP Move] refresh after move")
             self.selectedItems.removeAll()
             self.refresh()
         }
@@ -1180,7 +1146,6 @@ private struct SFTPRowDropDelegate: DropDelegate {
 
     func validateDrop(info: DropInfo) -> Bool {
         let internalMove = SFTPDragSession.currentDraggedName != nil
-        print("[SFTP Drop] validateDrop target=\(item.name) isDirectory=\(item.isDirectory) internalMove=\(internalMove)")
         if internalMove {
             // 列表内部移动只接受目录行作为落点。
             return item.isDirectory
@@ -1189,22 +1154,18 @@ private struct SFTPRowDropDelegate: DropDelegate {
     }
 
     func performDrop(info: DropInfo) -> Bool {
-        print("[SFTP Drop] performDrop target=\(item.name) isDirectory=\(item.isDirectory)")
         // 列表内部移动优先：使用进程内共享状态传递被拖拽条目名称，
         // 因为自定义 UTType 在 SwiftUI DropDelegate 的 NSItemProvider 中无法加载数据。
         guard let draggedName = SFTPDragSession.currentDraggedName else {
-            print("[SFTP Drop] not internal move, handle file drop")
             return handleFileDrop(info: info, into: item.isDirectory ? item : nil)
         }
         guard item.isDirectory else { return false }
-        print("[SFTP Drop] internal move, draggedName=\(draggedName) target directory=\(item.name)")
         handleMovePayload("exghostty:sftp-move:\(draggedName)")
         return true
     }
 
     private func handleMovePayload(_ payload: String?) {
         guard let payload else {
-            print("[SFTP Drop] handleMovePayload payload is nil")
             return
         }
         let name: String
@@ -1213,7 +1174,6 @@ private struct SFTPRowDropDelegate: DropDelegate {
         } else {
             name = payload
         }
-        print("[SFTP Drop] handleMovePayload payload=\(payload) parsedName=\(name)")
         Task {
             await viewModel.moveItem(named: name, intoDirectory: item)
         }

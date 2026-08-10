@@ -37,7 +37,6 @@ enum SFTPDragSession {
         guard !isActive, !items.isEmpty else { return }
         isActive = true
         currentDraggedName = draggedItem.name
-        print("[SFTP Drag] begin drag: draggedItem=\(draggedItem.name), items=\(items.map { $0.name }), remoteDirectory=\(remoteDirectory)")
 
         let location = view.convert(event.locationInWindow, from: nil)
         let isMulti = items.count > 1
@@ -65,7 +64,6 @@ enum SFTPDragSession {
         // 自定义类型 com.exghostty.sftp-move 已在 Info.plist 中注册为 exported UTType，
         // SwiftUI DropDelegate 可以正常检测并加载该类型的数据表示。
         let movePayload = "exghostty:sftp-move:\(draggedItem.name)"
-        print("[SFTP Drag] internal move payload: \(movePayload)")
         let internalProvider = SFTPInternalMoveProvider(payload: movePayload)
         let internalDraggingItem = NSDraggingItem(pasteboardWriter: internalProvider)
         internalDraggingItem.draggingFrame = CGRect(x: location.x, y: location.y, width: 1, height: 1)
@@ -135,7 +133,6 @@ private final class SFTPDraggingSource: NSObject, NSDraggingSource {
     }
 
     func draggingSession(_ session: NSDraggingSession, endedAt screenPoint: NSPoint, operation: NSDragOperation) {
-        print("[SFTP Drag] draggingSession ended, operation=\(operation)")
         SFTPDragSession.currentDraggedName = nil
         onEnd()
     }

@@ -31,11 +31,6 @@ enum RemoteSurfaceConfiguration {
 
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ghostty_ssh_\(conn.id.uuidString).exp")
-
-        let expectScript: String
-        let logURL = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ghostty_ssh_\(conn.id.uuidString).log")
-        let logPath = logURL.path
         let reconnectPrompt = "Press any key to reconnect".localized.tclEscaped
 
         let syncPtyProc = """
@@ -49,21 +44,58 @@ enum RemoteSurfaceConfiguration {
                 } tty_err]} {
                     set rows $env(GHOSTTY_ROWS)
                     set cols $env(GHOSTTY_COLS)
-                    sshlog "fallback to env size: $rows $cols"
                 }
                 stty rows $rows columns $cols < $spawn_out(slave,name)
-                sshlog "set ssh pty to $rows $cols"
             } err]} {
-                sshlog "sync pty failed: $err"
+                # 忽略 PTY 尺寸同步失败
             }
         }
         """
 
-        if conn.authMode == .password, !conn.password.isEmpty {
-            // 密码通过 SSH_ASKPASS 助手提供给 ssh，而不是用 expect 匹配 "password:" 提示：
-            // 当服务器同时接受本地密钥时，密钥认证先行成功，根本不会出现密码提示，
-            // expect 会空等整个 timeout（15 秒），表现为"连接很慢"。
-            // askpass 方式下密钥/密码两种认证路径都无需等待。
+        // 「用户身份」：登录后自动 sudo su 到配置的用户。
+        // 远端命令先打印一个随机标记再 exec 登录 shell，expect 匹配到标记即表示远端 shell
+        // 已就绪——避免盲发切换命令：过早发送的命令会被首次连接的主机密钥确认提示（yes/no）
+        // 吞掉，导致连接中止。标记匹配超时则放弃本次自动切换，终端停留在登录用户。
+        let identity = conn.effectiveIdentity
+        var spawnLine = "spawn /usr/bin/ssh \(conn.sshBaseArgs)"
+        var identitySnippet = ""
+        if let identity {
+            let token = String((0..<8).map { _ in "abcdefghijklmnopqrstuvwxyz0123456789".randomElement()! })
+            let marker = "GHOSTTY_IDENTITY_READY_\(token)"
+            spawnLine = "spawn /usr/bin/ssh -t \(conn.sshBaseArgs) \"echo \(marker); exec \\$SHELL -l\""
+            let hasIdentityPassword = !(identity.sudoPassword?.isEmpty ?? true)
+            let passwordSnippet = """
+                set timeout 5
+                expect {
+                    -nocase "password" { send "$env(GHOSTTY_IDENTITY_PASSWORD)\\r" }
+                    timeout {}
+                    eof {}
+                }
+            """
+            identitySnippet = """
+                # 用户身份：等待远端 shell 就绪标记，随后自动 sudo su 到目标用户
+                set identity_ready 0
+                set timeout 60
+                expect {
+                    "\(marker)" { set identity_ready 1 }
+                    timeout {}
+                    eof {}
+                }
+                if {$identity_ready} {
+                    send "sudo -k su - \(identity.username.tclEscaped)\\r"
+                \(hasIdentityPassword ? passwordSnippet : "")
+                }
+                set timeout 15
+            """
+            cfg.environmentVariables["GHOSTTY_IDENTITY_PASSWORD"] = identity.sudoPassword ?? ""
+        }
+
+        // 密码通过 SSH_ASKPASS 助手提供给 ssh，而不是用 expect 匹配 "password:" 提示：
+        // 当服务器同时接受本地密钥时，密钥认证先行成功，根本不会出现密码提示，
+        // expect 会空等整个 timeout（15 秒），表现为"连接很慢"。
+        // askpass 方式下密钥/密码两种认证路径都无需等待。
+        let useAskpass = conn.authMode == .password && !conn.password.isEmpty
+        if useAskpass {
             let askpassURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("ghostty_ssh_askpass.sh")
             let askpassScript = """
@@ -72,65 +104,42 @@ enum RemoteSurfaceConfiguration {
             """
             try? askpassScript.write(to: askpassURL, atomically: true, encoding: .utf8)
             try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: askpassURL.path)
-
-            expectScript = """
-            set timeout 15
-            set logfile [open "\(logPath)" "a"]
-            proc sshlog {msg} {
-                global logfile
-                puts $logfile "[clock format [clock seconds]] $msg"
-                flush $logfile
-            }
-            \(syncPtyProc)
-            trap { sshlog "SIGTERM ignored" } SIGTERM
-            trap { sshlog "SIGINT ignored" } SIGINT
-            while {1} {
-                sshlog "spawn ssh"
-                log_user 0
-                spawn /usr/bin/ssh \(conn.sshBaseArgs)
-                sync_ssh_pty
-                trap { sync_ssh_pty } SIGWINCH
-                log_user 1
-                interact
-                sshlog "interact returned"
-                puts ""
-                puts "\(reconnectPrompt)"
-                expect_user -re . {}
-                sshlog "reconnect key pressed"
-            }
-            """
             cfg.environmentVariables["SSH_ASKPASS"] = askpassURL.path
             cfg.environmentVariables["SSH_ASKPASS_REQUIRE"] = "force"
             cfg.environmentVariables["GHOSTTY_ASKPASS_PASSWORD"] = conn.password
-        } else {
-            // 密钥登录：同样用 expect 包装，实现断线后按任意键重连。
-            // 只隐藏 spawn 命令本身的输出，其余 SSH 输出保持可见。
-            expectScript = """
-            set logfile [open "\(logPath)" "a"]
-            proc sshlog {msg} {
-                global logfile
-                puts $logfile "[clock format [clock seconds]] $msg"
-                flush $logfile
-            }
-            \(syncPtyProc)
-            trap { sshlog "SIGTERM ignored" } SIGTERM
-            trap { sshlog "SIGINT ignored" } SIGINT
-            while {1} {
-                sshlog "spawn ssh"
-                log_user 0
-                spawn /usr/bin/ssh \(conn.sshBaseArgs)
-                sync_ssh_pty
-                trap { sync_ssh_pty } SIGWINCH
-                log_user 1
-                interact
-                sshlog "interact returned"
-                puts ""
-                puts "\(reconnectPrompt)"
-                expect_user -re . {}
-                sshlog "reconnect key pressed"
-            }
-            """
         }
+
+        // 用 expect 包装，实现断线后按任意键重连。
+        // 身份切换模式下全程显示输出（log_user 1），用户才能看到首次连接的主机密钥确认提示；
+        // 否则只隐藏 spawn 命令本身的输出，其余 SSH 输出保持可见。
+        var expectScript = useAskpass ? "set timeout 15\n" : ""
+        expectScript += syncPtyProc + "\n"
+        expectScript += """
+        trap {} SIGTERM
+        trap {} SIGINT
+        while {1} {
+
+        """
+        expectScript += identity == nil ? "    log_user 0\n" : "    log_user 1\n"
+        expectScript += "    \(spawnLine)\n"
+        expectScript += """
+            sync_ssh_pty
+            trap { sync_ssh_pty } SIGWINCH
+
+        """
+        if identity == nil {
+            expectScript += "    log_user 1\n"
+        }
+        if !identitySnippet.isEmpty {
+            expectScript += identitySnippet + "\n"
+        }
+        expectScript += """
+            interact
+            puts ""
+            puts "\(reconnectPrompt)"
+            expect_user -re . {}
+        }
+        """
 
         do {
             try expectScript.write(to: scriptURL, atomically: true, encoding: .utf8)

@@ -187,8 +187,7 @@ final class SystemMonitorService: ObservableObject, @unchecked Sendable {
                 self?.latestOutput = output
             }
         } catch {
-            // 记录解析失败，便于排查字段不匹配问题；忽略无法解析的行（例如 xtop 启动信息）。
-            NSLog("[SystemMonitor] Failed to decode xtop line: \(error)")
+            // 忽略无法解析的行（例如 xtop 启动信息）。
         }
     }
 

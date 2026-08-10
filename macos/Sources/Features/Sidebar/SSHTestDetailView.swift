@@ -36,16 +36,13 @@ struct SSHTestDetailView: View {
         .frame(width: 680, height: 420)
         .background(Color(.windowBackgroundColor))
         .onAppear {
-            NSLog("[SSHTestDetailView] onAppear")
             startTest()
         }
         .onDisappear {
-            NSLog("[SSHTestDetailView] onDisappear")
             eventTimer?.invalidate()
             task?.cancel()
         }
         .onExitCommand {
-            NSLog("[SSHTestDetailView] onExitCommand")
             eventTimer?.invalidate()
             task?.cancel()
             onComplete?(false)
@@ -182,7 +179,6 @@ struct SSHTestDetailView: View {
         isSuccess = false
         finalMessage = ""
 
-        NSLog("[SSHTestDetailView] startTest, isMainThread=%d", Thread.isMainThread)
         task = SSHTester.runTest(config: config) { event in
             buffer.append(event)
         }
@@ -203,18 +199,14 @@ struct SSHTestDetailView: View {
     private func apply(_ event: SSHTestEvent) {
         switch event {
         case .step(let text):
-            NSLog("[SSHTestDetailView] step: %@", text)
             logs.append(SSHTestLogItem(kind: .step, text: text))
         case .log(let text):
-            NSLog("[SSHTestDetailView] log: %@", text)
             logs.append(SSHTestLogItem(kind: .log, text: text))
         case .success(let message):
-            NSLog("[SSHTestDetailView] success: %@", message)
             isSuccess = true
             finalMessage = message
             isFinished = true
         case .failure(let message):
-            NSLog("[SSHTestDetailView] failure: %@", message)
             isSuccess = false
             finalMessage = message
             isFinished = true
@@ -241,7 +233,6 @@ private final class SSHTestEventBuffer {
         lock.lock()
         events.append(event)
         lock.unlock()
-        NSLog("[SSHTestDetailView] buffered event")
     }
 
     func drain() -> [SSHTestEvent] {
