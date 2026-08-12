@@ -1532,6 +1532,9 @@ msgstr "用于回答 sudo 密码提示"
 msgid "After login, automatically switch to the target user via sudo su. SFTP, Docker and other features will also run as this user."
 msgstr "登录后自动通过 sudo su 切换到目标用户，SFTP、Docker 等功能也将以该用户身份执行。"
 
+msgid "Duplicate"
+msgstr "复制配置"
+
 msgid "Editor"
 msgstr "编辑器"
 

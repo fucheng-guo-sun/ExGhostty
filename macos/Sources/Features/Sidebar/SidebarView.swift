@@ -236,6 +236,9 @@ struct SidebarView: View {
                     showEditSSHDialog()
                 }
             }
+            Button("Duplicate".localized) {
+                duplicateConnection(conn)
+            }
             Button(role: .destructive) {
                 showDeleteConnectionConfirmation(conn)
             } label: {
@@ -243,6 +246,22 @@ struct SidebarView: View {
                     .foregroundColor(.red)
             }
         }
+    }
+
+    /// 复制连接配置：直接保存在原分组下，名称自动追加 (2)、(3) 等不冲突的后缀。
+    private func duplicateConnection(_ conn: SSHConnection) {
+        // 名称本身已带 " (N)" 后缀时先剥掉作为基名，避免叠出 " (2) (2)"。
+        let baseName = conn.name.replacingOccurrences(
+            of: #"\s\(\d+\)$"#, with: "", options: .regularExpression
+        )
+        let existingNames = Set(store.connections.map(\.name))
+        var suffix = 2
+        var newName = "\(baseName) (\(suffix))"
+        while existingNames.contains(newName) {
+            suffix += 1
+            newName = "\(baseName) (\(suffix))"
+        }
+        store.addConnection(conn.duplicated(name: newName))
     }
 
     /// 连接类型小标签：SSH 绿色，Telnet 橙色。

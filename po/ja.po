@@ -1393,3 +1393,6 @@ msgstr "sudo プロンプトに応答するパスワード"
 
 msgid "After login, automatically switch to the target user via sudo su. SFTP, Docker and other features will also run as this user."
 msgstr "ログイン後、sudo su で対象ユーザーに自動的に切り替えます。SFTP、Docker などの機能もこのユーザーとして実行されます。"
+
+msgid "Duplicate"
+msgstr "複製"

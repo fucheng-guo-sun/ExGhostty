@@ -62,7 +62,12 @@ enum RemoteSurfaceConfiguration {
         if let identity {
             let token = String((0..<8).map { _ in "abcdefghijklmnopqrstuvwxyz0123456789".randomElement()! })
             let marker = "GHOSTTY_IDENTITY_READY_\(token)"
-            spawnLine = "spawn /usr/bin/ssh -t \(conn.sshBaseArgs) \"echo \(marker); exec \\$SHELL -l\""
+            // 标记打印后立即用空格覆盖擦除（\r + 等长空格 + \r，只用 POSIX 的 \r，
+            // 不依赖 \033 等非 POSIX printf 转义），终端上不留痕迹；
+            // expect 匹配的是字节流，不受影响。Tcl {} 内原样传递：\r 由远端
+            // printf 解释，$SHELL 由远端 shell 展开。
+            let erase = String(repeating: " ", count: marker.count)
+            spawnLine = "spawn /usr/bin/ssh -t \(conn.sshBaseArgs) {printf '\(marker)\\r\(erase)\\r'; exec $SHELL -l}"
             let hasIdentityPassword = !(identity.sudoPassword?.isEmpty ?? true)
             let passwordSnippet = """
                 set timeout 5
@@ -72,6 +77,8 @@ enum RemoteSurfaceConfiguration {
                     eof {}
                 }
             """
+            // exec sudo：登录 shell 被 sudo 进程替换，目标用户 exit 时没有可退回的父 shell，
+            // SSH 会话随之结束（回到“按任意键重连”），而不是退回登录用户的 shell。
             identitySnippet = """
                 # 用户身份：等待远端 shell 就绪标记，随后自动 sudo su 到目标用户
                 set identity_ready 0
@@ -82,7 +89,7 @@ enum RemoteSurfaceConfiguration {
                     eof {}
                 }
                 if {$identity_ready} {
-                    send "sudo -k su - \(identity.username.tclEscaped)\\r"
+                    send "exec sudo -k su - \(identity.username.tclEscaped)\\r"
                 \(hasIdentityPassword ? passwordSnippet : "")
                 }
                 set timeout 15
@@ -110,8 +117,9 @@ enum RemoteSurfaceConfiguration {
         }
 
         // 用 expect 包装，实现断线后按任意键重连。
-        // 身份切换模式下全程显示输出（log_user 1），用户才能看到首次连接的主机密钥确认提示；
-        // 否则只隐藏 spawn 命令本身的输出，其余 SSH 输出保持可见。
+        // log_user 0 只包住 spawn 一行，隐藏 spawn 命令回显（身份切换模式下命令里
+        // 含有远端引导命令，不应展示）；随后立即恢复输出，SSH 横幅、首次连接的
+        // 主机密钥确认提示等均保持可见。
         var expectScript = useAskpass ? "set timeout 15\n" : ""
         expectScript += syncPtyProc + "\n"
         expectScript += """
@@ -120,16 +128,14 @@ enum RemoteSurfaceConfiguration {
         while {1} {
 
         """
-        expectScript += identity == nil ? "    log_user 0\n" : "    log_user 1\n"
+        expectScript += "    log_user 0\n"
         expectScript += "    \(spawnLine)\n"
+        expectScript += "    log_user 1\n"
         expectScript += """
             sync_ssh_pty
             trap { sync_ssh_pty } SIGWINCH
 
         """
-        if identity == nil {
-            expectScript += "    log_user 1\n"
-        }
         if !identitySnippet.isEmpty {
             expectScript += identitySnippet + "\n"
         }

@@ -124,6 +124,33 @@ struct SSHConnection: Identifiable, Codable, Hashable {
         )
     }
 
+    /// 复制连接配置：生成新 id、使用新名称，其余字段（含分组）保持不变。
+    func duplicated(name newName: String) -> SSHConnection {
+        SSHConnection(
+            id: UUID(),
+            name: newName,
+            host: host,
+            port: port,
+            username: username,
+            groupID: groupID,
+            type: type,
+            authMode: authMode,
+            password: password,
+            connectionPassword: connectionPassword,
+            keyPath: keyPath,
+            connectionMethod: connectionMethod,
+            jumpHostID: jumpHostID,
+            notes: notes,
+            timeoutMs: timeoutMs,
+            heartbeatMs: heartbeatMs,
+            encoding: encoding,
+            x11Forwarding: x11Forwarding,
+            identitySwitchEnabled: identitySwitchEnabled,
+            identityUsername: identityUsername,
+            identityPassword: identityPassword
+        )
+    }
+
     init(
         id: UUID = UUID(),
         name: String,
