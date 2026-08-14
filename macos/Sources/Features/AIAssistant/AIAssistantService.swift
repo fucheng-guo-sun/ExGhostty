@@ -8,8 +8,9 @@ struct AIConfiguration {
     var apiKey: String
     var model: String
 
+    /// API Key 可为空：部分服务（本地模型、免密钥网关等）不需要鉴权。
     var isValid: Bool {
-        !endpoint.isEmpty && !apiKey.isEmpty && !model.isEmpty
+        !endpoint.isEmpty && !model.isEmpty
     }
 }
 
@@ -89,7 +90,9 @@ final class AIAssistantService: ObservableObject {
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
+        if !configuration.apiKey.isEmpty {
+            request.setValue("Bearer \(configuration.apiKey)", forHTTPHeaderField: "Authorization")
+        }
         request.timeoutInterval = 120
 
         var apiMessages: [[String: String]] = []
@@ -232,7 +235,7 @@ enum AIAssistantError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .configurationMissing:
-            return "AI configuration is missing. Please set ai-endpoint, ai-apikey and ai-model in settings.".localized
+            return "AI configuration is missing. Please set ai-endpoint and ai-model in settings.".localized
         case .invalidEndpoint:
             return "Invalid AI endpoint URL.".localized
         case .invalidResponse:

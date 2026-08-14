@@ -1114,7 +1114,7 @@ struct SettingsView: View {
                     .frame(width: 360)
             }
 
-            settingsRow(label: "API Key".localized) {
+            settingsRow(label: "API Key (optional)".localized) {
                 SecureField("", text: $model.aiApiKey)
                     .textFieldStyle(.roundedBorder)
                     .frame(width: 360)

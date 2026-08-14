@@ -152,6 +152,30 @@ class PortForwardStore: ObservableObject {
     private var runningScriptURLs: [UUID: URL] = [:]
     /// 记录用户主动停止的规则 ID；非主动终止的进程会在结束后自动重启。
     private var intentionallyStopped: Set<UUID> = []
+    /// 各规则最近一次进程启动时间，用于判断本次运行是否已稳定。
+    private var processStartDates: [UUID: Date] = [:]
+    /// 连续重连失败次数；转发被确认稳定（或用户手动停止）后清零。
+    private var consecutiveFailures: [UUID: Int] = [:]
+    /// 被健康检查判定为"假通"（进程在但端口不通）而强杀的规则，
+    /// 终止处理时无论运行多久都计为一次失败。
+    private var killedByHealthCheck: Set<UUID> = []
+    /// 本次运行已通过端到端探测验证的规则，断开后视为正常保活重连，不计失败。
+    private var probeVerified: Set<UUID> = []
+    /// 本地监听端口健康检查定时器。
+    private var healthCheckTimer: Timer?
+    /// 防止上一轮后台探测未结束时重入。
+    private var healthCheckInFlight = false
+
+    /// 自动重连的固定间隔（不做指数退避）。
+    private let reconnectDelay: TimeInterval = 3
+    /// 连续失败达到此次数后停止重连并弹窗通知用户。
+    private let maxConsecutiveFailures = 5
+    /// 进程存活超过该时长视为已稳定，之后的断开属于正常保活重连，不计入失败次数。
+    private let stabilityThreshold: TimeInterval = 15
+    /// 健康检查间隔与启动宽限期（宽限期内不判定端口状态）。
+    private let healthCheckInterval: TimeInterval = 10
+    private let healthCheckGracePeriod: TimeInterval = 20
+
     private let logger = Logger(
         subsystem: Bundle.main.bundleIdentifier ?? "com.xjai.exghostty",
         category: "PortForwardStore"
@@ -219,6 +243,8 @@ class PortForwardStore: ObservableObject {
 
         // 用户主动启动时清除停止标记，避免被保活机制误判。
         intentionallyStopped.remove(id)
+        // 清理可能残留的控制通道套接字（上次进程被强杀时会留下）。
+        try? FileManager.default.removeItem(atPath: ctlPath(for: id))
 
         let rule = rules[idx]
         let expectScript = makeExpectScript(rule: rule, connection: conn)
@@ -256,6 +282,10 @@ class PortForwardStore: ObservableObject {
             runningProcesses[id] = process
             runningScriptURLs[id] = scriptURL
             rules[idx].isRunning = true
+            processStartDates[id] = Date()
+            killedByHealthCheck.remove(id)
+            probeVerified.remove(id)
+            startHealthCheckTimerIfNeeded()
         } catch {
             try? FileManager.default.removeItem(at: scriptURL)
         }
@@ -265,6 +295,11 @@ class PortForwardStore: ObservableObject {
     func stopRule(_ id: UUID) {
         // 标记为用户主动停止，进程终止后不再自动重启。
         intentionallyStopped.insert(id)
+        // 手动停止视为用户显式干预，重置失败计数与运行状态记录。
+        consecutiveFailures[id] = 0
+        processStartDates.removeValue(forKey: id)
+        killedByHealthCheck.remove(id)
+        probeVerified.remove(id)
 
         guard let process = runningProcesses[id] else {
             if let idx = rules.firstIndex(where: { $0.id == id }) {
@@ -335,6 +370,7 @@ class PortForwardStore: ObservableObject {
         if let idx = rules.firstIndex(where: { $0.id == id }) {
             rules[idx].isRunning = false
         }
+        stopHealthCheckTimerIfIdle()
 
         let logPath = logPath(for: id)
         let logTail = lastLogLines(path: logPath, count: 30)
@@ -346,22 +382,245 @@ class PortForwardStore: ObservableObject {
             """)
 
         try? FileManager.default.removeItem(at: scriptURL)
+        try? FileManager.default.removeItem(atPath: ctlPath(for: id))
 
-        // 非用户主动停止时，延迟 2 秒自动重启，实现长时间保活。
-        if !intentionallyStopped.contains(id) {
-            logger.info("Restarting port forward \"\(ruleName)\" in 2 seconds...")
-            DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in
-                guard let self else { return }
-                guard self.rules.first(where: { $0.id == id }) != nil else { return }
-                // 如果用户在等待期间点了停止，则不再重启。
-                guard !self.intentionallyStopped.contains(id) else {
-                    self.intentionallyStopped.remove(id)
-                    return
-                }
-                self.startRule(id)
-            }
-        } else {
+        let wasKilledByHealthCheck = killedByHealthCheck.remove(id) != nil
+        let wasVerified = probeVerified.remove(id) != nil
+        let uptime = processStartDates.removeValue(forKey: id).map { Date().timeIntervalSince($0) } ?? 0
+
+        // 用户主动停止时不重启。
+        guard !intentionallyStopped.contains(id) else {
             intentionallyStopped.remove(id)
+            return
+        }
+
+        // 通过过端到端探测的运行（或存活超过阈值且非健康检查强杀）后的断开
+        // 视为正常保活，直接重连并重置失败计数；否则计为一次重连失败。
+        let wasStable = !wasKilledByHealthCheck && (wasVerified || uptime >= stabilityThreshold)
+        if wasStable {
+            consecutiveFailures[id] = 0
+        } else {
+            let failures = (consecutiveFailures[id] ?? 0) + 1
+            consecutiveFailures[id] = failures
+            if failures >= maxConsecutiveFailures {
+                logger.error("""
+                    Port forward \"\(ruleName)\" failed to reconnect \(failures) times, giving up.
+                    """)
+                // 重置计数，用户手动重试或点击弹窗"重试"时从零重新计数。
+                consecutiveFailures[id] = 0
+                notifyReconnectFailed(ruleID: id, ruleName: ruleName)
+                return
+            }
+        }
+
+        // 固定间隔重连，不做指数退避。
+        logger.info("Restarting port forward \"\(ruleName)\" in \(Int(self.reconnectDelay)) seconds...")
+        DispatchQueue.main.asyncAfter(deadline: .now() + reconnectDelay) { [weak self] in
+            guard let self else { return }
+            guard self.rules.first(where: { $0.id == id }) != nil else { return }
+            // 如果用户在等待期间点了停止，则不再重启。
+            guard !self.intentionallyStopped.contains(id) else {
+                self.intentionallyStopped.remove(id)
+                return
+            }
+            self.startRule(id)
+        }
+    }
+
+    // MARK: - 健康检查（发现"显示连着但实际不通"的假通状态）
+
+    /// 有运行中的 local/dynamic 规则时启动定时健康检查。
+    private func startHealthCheckTimerIfNeeded() {
+        guard healthCheckTimer == nil else { return }
+        let timer = Timer(timeInterval: healthCheckInterval, repeats: true) { [weak self] _ in
+            self?.performHealthCheck()
+        }
+        RunLoop.main.add(timer, forMode: .common)
+        healthCheckTimer = timer
+    }
+
+    /// 没有需要检查的转发进程时停止定时器。
+    private func stopHealthCheckTimerIfIdle() {
+        guard runningProcesses.isEmpty else { return }
+        healthCheckTimer?.invalidate()
+        healthCheckTimer = nil
+    }
+
+    /// 对运行中的规则做端到端健康检查：通过控制通道复用现有 SSH 会话执行
+    /// 远端命令，能执行说明"会话 + 通道"整条链路真实可用；探测失败（含会话
+    /// 假死导致的超时）则强杀进程触发自动重连。
+    private func performHealthCheck() {
+        guard !healthCheckInFlight else { return }
+        struct Candidate {
+            let id: UUID
+            let rule: PortForwardRule
+            let connection: SSHConnection
+            let expectPID: Int32
+        }
+        let candidates: [Candidate] = runningProcesses.compactMap { id, process in
+            guard process.isRunning,
+                  let rule = rules.first(where: { $0.id == id }),
+                  let start = processStartDates[id],
+                  Date().timeIntervalSince(start) >= healthCheckGracePeriod,
+                  let connID = rule.sshConnectionID,
+                  let conn = SSHStore.shared.connections.first(where: { $0.id == connID }) else {
+                return nil
+            }
+            return Candidate(id: id, rule: rule, connection: conn, expectPID: Int32(process.processIdentifier))
+        }
+        guard !candidates.isEmpty else { return }
+        healthCheckInFlight = true
+
+        // 探测要起子进程并等待，放到后台线程执行，结果回主线程处理。
+        DispatchQueue.global(qos: .utility).async { [weak self] in
+            guard let self else { return }
+            let results = candidates.map { ($0, self.probeTunnel(rule: $0.rule, connection: $0.connection)) }
+            DispatchQueue.main.async {
+                defer { self.healthCheckInFlight = false }
+                for (candidate, healthy) in results {
+                    if healthy {
+                        // 链路真实可用，重置失败计数并标记本次运行已验证。
+                        self.consecutiveFailures[candidate.id] = 0
+                        self.probeVerified.insert(candidate.id)
+                        continue
+                    }
+                    // 进程可能刚好退出或被用户停止，二次确认后再强杀。
+                    guard let process = self.runningProcesses[candidate.id], process.isRunning else { continue }
+                    let name = candidate.rule.name.isEmpty ? candidate.id.uuidString : candidate.rule.name
+                    self.logger.warning("""
+                        Port forward \"\(name)\" failed the end-to-end probe; restarting.
+                        """)
+                    self.killedByHealthCheck.insert(candidate.id)
+                    for child in ProcessInspector.childPIDs(of: candidate.expectPID) {
+                        ProcessInspector.forceKill(pid: child)
+                    }
+                    ProcessInspector.forceKill(pid: candidate.expectPID)
+                }
+            }
+        }
+    }
+
+    /// 探测结果：ok=链路正常；refused=服务端快速拒绝（如受限账号）；timeout=超时（会话假死）。
+    private enum ProbeResult {
+        case ok, refused, timeout
+    }
+
+    /// 端到端探测：经控制通道复用现有会话执行远端 `true`。
+    /// - 会话假死时请求会挂起，按超时判定为失效；
+    /// - 对禁止执行命令的受限服务器（ForceCommand 等），快速拒绝属误报，
+    ///   local 规则再用 -W 直连目标地址复核，其余类型视为正常。
+    private func probeTunnel(rule: PortForwardRule, connection: SSHConnection) -> Bool {
+        switch muxExec(connection: connection, ruleID: rule.id, remoteCommand: "true", timeout: 8) {
+        case .ok:
+            return true
+        case .timeout:
+            return false
+        case .refused:
+            guard rule.type == .local else { return true }
+            return muxForward(
+                connection: connection,
+                ruleID: rule.id,
+                target: "\(rule.remoteHost):\(rule.remotePort)",
+                timeout: 5
+            ) != .refused
+        }
+    }
+
+    /// 经控制通道在远端执行命令：超时前退出码 0 为 ok，非 0 为 refused；超时视为假死。
+    private func muxExec(connection: SSHConnection, ruleID: UUID, remoteCommand: String, timeout: TimeInterval) -> ProbeResult {
+        runMuxSlave(
+            arguments: muxSlaveArguments(connection: connection, ruleID: ruleID) + [remoteCommand],
+            holdStdinOpen: false,
+            timeout: timeout,
+            aliveAtTimeout: .timeout
+        )
+    }
+
+    /// 经控制通道打开 direct-tcpip 通道：超时仍存活说明通道已打开（ok），快速非 0 退出为 refused。
+    private func muxForward(connection: SSHConnection, ruleID: UUID, target: String, timeout: TimeInterval) -> ProbeResult {
+        runMuxSlave(
+            arguments: muxSlaveArguments(connection: connection, ruleID: ruleID, extra: ["-W", target]),
+            holdStdinOpen: true,
+            timeout: timeout,
+            aliveAtTimeout: .ok
+        )
+    }
+
+    /// 从属 ssh 的基础参数：仅复用控制通道，禁止交互。
+    /// - ControlMaster=no：从属进程自身不得成为 master；
+    /// - ProxyCommand=/usr/bin/false：控制通道失效（master 死亡/套接字残留）时，
+    ///   ssh 会退化为新建直连并绕过探测语义，用恒失败的 ProxyCommand 堵死该回退。
+    private func muxSlaveArguments(connection: SSHConnection, ruleID: UUID, extra: [String] = []) -> [String] {
+        let userPrefix = connection.username.isEmpty ? "" : "\(connection.username)@"
+        return [
+            "-S", ctlPath(for: ruleID),
+            "-o", "ControlMaster=no",
+            "-o", "BatchMode=yes",
+            "-o", "ProxyCommand=/usr/bin/false",
+        ] + extra + ["\(userPrefix)\(connection.host)"]
+    }
+
+    /// 运行一次从属 ssh 并按退出时机/退出码分类结果。
+    private func runMuxSlave(
+        arguments: [String],
+        holdStdinOpen: Bool,
+        timeout: TimeInterval,
+        aliveAtTimeout: ProbeResult
+    ) -> ProbeResult {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = arguments
+
+        // -W 会在 stdin EOF 时立即退出，需要保持 stdin 打开。
+        let stdinPipe = Pipe()
+        process.standardInput = holdStdinOpen ? stdinPipe : FileHandle.nullDevice
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+
+        do {
+            try process.run()
+        } catch {
+            return .refused
+        }
+
+        let deadline = Date().addingTimeInterval(timeout)
+        while process.isRunning && Date() < deadline {
+            Thread.sleep(forTimeInterval: 0.1)
+        }
+
+        if process.isRunning {
+            process.terminate()
+            try? stdinPipe.fileHandleForWriting.close()
+            process.waitUntilExit()
+            return aliveAtTimeout
+        }
+        try? stdinPipe.fileHandleForWriting.close()
+        return process.terminationStatus == 0 ? .ok : .refused
+    }
+
+    // MARK: - 失败通知
+
+    /// 连续重连失败后弹窗通知用户，可选择立即重试。
+    private func notifyReconnectFailed(ruleID: UUID, ruleName: String) {
+        let alert = NSAlert()
+        alert.alertStyle = .warning
+        alert.messageText = "Port Forwarding Failed".localized
+        alert.informativeText = L(
+            "Port forward \"%@\" disconnected and %d reconnection attempts all failed. Please check the network, server and port availability.\n\nLast log:\n%@",
+            ruleName,
+            maxConsecutiveFailures,
+            lastLogLines(path: logPath(for: ruleID), count: 8)
+        )
+        alert.addButton(withTitle: "Retry".localized)
+        alert.addButton(withTitle: "OK".localized)
+
+        let retry = { [weak self] in self?.startRule(ruleID) }
+        if let win = NSApp.keyWindow {
+            alert.beginSheetModal(for: win) { resp in
+                if resp == .alertFirstButtonReturn { retry() }
+            }
+        } else if alert.runModal() == .alertFirstButtonReturn {
+            retry()
         }
     }
 
@@ -420,10 +679,14 @@ class PortForwardStore: ObservableObject {
         // ssh 对同名选项取先出现的值，因此把隧道必需的参数放在最前面：
         // - ExitOnForwardFailure：端口绑定失败时 ssh 直接退出并触发自动重启，
         //   避免"进程还在但转发未生效"；
-        // - ServerAlive：即使连接配置关闭了心跳，隧道也强制开启保活，
-        //   连接假死（断网/休眠/NAT 超时）后最多 interval*3 秒内退出并重建。
-        let heartbeatSec = connection.heartbeatMs > 0 ? max(1, Int(connection.heartbeatMs / 1000)) : 15
-        let tunnelOpts = "-o ExitOnForwardFailure=yes -o ServerAliveInterval=\(heartbeatSec) -o ServerAliveCountMax=3 "
+        // - ServerAlive：即使连接配置关闭了心跳，隧道也强制开启保活（上限 15 秒），
+        //   保证 NAT/防火墙空闲超时前有心跳流量；连接假死后最多 interval*3 秒内退出并重建；
+        // - -M -S：让隧道 ssh 作为 control master 运行，健康检查可通过控制通道
+        //   复用现有会话做端到端探测，无需重新认证。
+        let userHeartbeatSec = connection.heartbeatMs > 0 ? max(1, Int(connection.heartbeatMs / 1000)) : 15
+        let heartbeatSec = min(userHeartbeatSec, 15)
+        let tunnelOpts = "-M -S \(ctlPath(for: rule.id)) -o ExitOnForwardFailure=yes " +
+            "-o ServerAliveInterval=\(heartbeatSec) -o ServerAliveCountMax=3 "
         let base = tunnelOpts + connection.sshOptions
         switch rule.type {
         case .local:
@@ -437,6 +700,15 @@ class PortForwardStore: ObservableObject {
 
     private func logPath(for rule: PortForwardRule) -> String {
         logPath(for: rule.id)
+    }
+
+    /// 控制通道（control master）套接字路径，用于健康检查的端到端探测。
+    /// Unix 套接字路径上限约 104 字符，$TMPDIR 本身已占约 50，
+    /// 因此文件名只取 UUID 前 12 位（冲突概率可忽略）。
+    private func ctlPath(for id: UUID) -> String {
+        FileManager.default.temporaryDirectory
+            .appendingPathComponent("ghostty_pf_\(id.uuidString.prefix(12)).ctl")
+            .path
     }
 
     private func logPath(for id: UUID) -> String {

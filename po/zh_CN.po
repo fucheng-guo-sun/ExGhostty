@@ -639,8 +639,23 @@ msgstr "端口转发"
 msgid "Port Forward Configuration"
 msgstr "端口转发配置"
 
+msgid "Port Forwarding Failed"
+msgstr "端口转发失败"
+
 msgid "Port Usage"
 msgstr "端口占用管理"
+
+msgid ""
+"Port forward \"%@\" disconnected and %d reconnection attempts all failed. "
+"Please check the network, server and port availability.\n"
+"\n"
+"Last log:\n"
+"%@"
+msgstr ""
+"端口转发 \"%@\" 已断开，%d 次重连均失败。请检查网络、服务器和端口占用情况。\n"
+"\n"
+"最后日志:\n"
+"%@"
 
 msgid "Press any key to reconnect"
 msgstr "按任意键进行重连"
@@ -1117,6 +1132,9 @@ msgstr "API 地址"
 msgid "API Key"
 msgstr "API 密钥"
 
+msgid "API Key (optional)"
+msgstr "API 密钥（可选）"
+
 msgid "Choose..."
 msgstr "选择..."
 
@@ -1279,8 +1297,8 @@ msgstr "这将删除所有保存的 AI 对话，此操作不可撤销。"
 msgid "New Conversation"
 msgstr "新对话"
 
-msgid "AI configuration is missing. Please set ai-endpoint, ai-apikey and ai-model in settings."
-msgstr "缺少 AI 配置。请在设置中配置 ai-endpoint、ai-apikey 和 ai-model。"
+msgid "AI configuration is missing. Please set ai-endpoint and ai-model in settings."
+msgstr "缺少 AI 配置。请在设置中配置 ai-endpoint 和 ai-model。"
 
 msgid "Invalid AI endpoint URL."
 msgstr "无效的 AI 接口地址。"
