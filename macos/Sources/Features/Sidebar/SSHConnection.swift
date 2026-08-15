@@ -262,8 +262,8 @@ struct SSHConnection: Identifiable, Codable, Hashable {
     var sshOptions: String {
         var args = ""
 
-        // 连接超时（秒，支持小数）
-        let timeoutSec = max(1, Double(timeoutMs) / 1000.0)
+        // 连接超时（秒，仅整数）
+        let timeoutSec = max(1, Int(timeoutMs) / 1000)
         args += "-o ConnectTimeout=\(timeoutSec) "
 
         // 心跳保活（秒，取整至少 1 秒）
