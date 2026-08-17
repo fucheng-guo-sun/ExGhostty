@@ -14,6 +14,7 @@ extension Translations {
         // MARK: settings（Translations.swift）
         "设置": "設定",
         "完成": "完成",
+        "返回": "返回",
         "通用": "一般",
         "语言": "語言",
         "语言切换立即生效。": "語言切換立即生效。",

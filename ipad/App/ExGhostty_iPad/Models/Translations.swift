@@ -23,6 +23,7 @@ enum Translations {
         // MARK: 设置页
         "设置": "Settings",
         "完成": "Done",
+        "返回": "Back",
         "通用": "General",
         "语言": "Language",
         "语言切换立即生效。": "Language changes take effect immediately.",

@@ -6,8 +6,8 @@
 //  the left and the detail pane on the right. Categories: General
 //  (language / editor / iCloud sync), Theme (UI placeholder — switching is
 //  not implemented yet), Appearance (bundled fonts + size), AI and Keys.
-//  Settings apply live (UserDefaults-backed stores); the sheet only needs
-//  a Done button, no explicit save.
+//  Settings apply live (UserDefaults-backed stores), so the top-left back
+//  button just pops the page; no explicit save step is needed.
 //
 
 import SwiftUI
@@ -49,8 +49,17 @@ struct SettingsView: View {
             .navigationTitle(L("设置"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(L("完成")) { dismiss() }
+                // 设置均为 UserDefaults 即时落盘，返回即已保存；
+                // 开了 iCloud 同步的话顺手推一次远端。
+                ToolbarItem(placement: .topBarLeading) {
+                    Button {
+                        if settings.iCloudSyncEnabled {
+                            ICloudSyncManager.shared.syncNow()
+                        }
+                        dismiss()
+                    } label: {
+                        Label(L("返回"), systemImage: "chevron.left")
+                    }
                 }
             }
         }
