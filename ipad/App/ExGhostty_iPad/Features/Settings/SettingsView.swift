@@ -2,8 +2,12 @@
 //  SettingsView.swift
 //  ExGhostty_iPad
 //
-//  Settings page: AI assistant configuration, terminal appearance
-//  and iCloud sync.
+//  Settings page with the Mac version's split layout: a category list on
+//  the left and the detail pane on the right. Categories: General
+//  (language / editor / iCloud sync), Theme (UI placeholder — switching is
+//  not implemented yet), Appearance (bundled fonts + size), AI and Keys.
+//  Settings apply live (UserDefaults-backed stores); the sheet only needs
+//  a Done button, no explicit save.
 //
 
 import SwiftUI
@@ -11,93 +15,299 @@ import SwiftUI
 struct SettingsView: View {
     @Environment(\.dismiss) private var dismiss
     @StateObject private var settings = SettingsStore.shared
+    @StateObject private var l10n = LocalizationManager.shared
+
+    @State private var selectedCategory: SettingsCategory = .general
+
+    /// 忽略置空企图，保证右侧面板不为空（与 Mac 版一致）。
+    private var selectedCategoryBinding: Binding<SettingsCategory?> {
+        Binding(
+            get: { selectedCategory },
+            set: { newValue in
+                if let newValue {
+                    selectedCategory = newValue
+                }
+            }
+        )
+    }
 
     var body: some View {
         NavigationStack {
-            Form {
-                Section {
-                    TextField("Endpoint", text: $settings.aiEndpoint)
-                        .keyboardType(.URL)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                    SecureField("API Key", text: $settings.aiAPIKey)
-                    TextField("Model", text: $settings.aiModel)
-                        .textInputAutocapitalization(.never)
-                        .autocorrectionDisabled()
-                } header: {
-                    Text("AI 助手")
-                } footer: {
-                    Text("兼容 OpenAI 的 /chat/completions 接口")
-                }
+            HStack(spacing: 0) {
+                categoryList
+                    .frame(width: 200)
 
-                Section("密钥") {
-                    NavigationLink("密钥管理") {
-                        SSHKeyManagementView()
-                    }
-                }
+                Divider()
 
-                Section {
-                    HStack {
-                        Text("字号")
-                        Spacer()
-                        Text("\(Int(settings.terminalFontSize))")
-                            .foregroundStyle(.secondary)
-                            .monospacedDigit()
-                        Stepper(
-                            "",
-                            value: $settings.terminalFontSize,
-                            in: 9...24,
-                            step: 1
-                        )
-                        .labelsHidden()
-                    }
-                    Picker("编辑器", selection: $settings.terminalEditor) {
-                        ForEach(TerminalEditor.allCases) { editor in
-                            Text(editor.rawValue).tag(editor.rawValue)
-                        }
-                    }
-                } header: {
-                    Text("终端")
-                } footer: {
-                    Text("SFTP 文件列表中「使用编辑器打开」会在终端里执行该编辑器。")
-                }
-
-                Section {
-                    Toggle("开启同步", isOn: $settings.iCloudSyncEnabled)
-                        .tint(.teal)
-                        .onChange(of: settings.iCloudSyncEnabled) { _, enabled in
-                            if enabled {
-                                ICloudSyncManager.shared.start()
-                                ICloudSyncManager.shared.syncNow()
-                            } else {
-                                ICloudSyncManager.shared.stop()
-                            }
-                        }
-                    if settings.iCloudSyncEnabled {
-                        Button("立即同步") {
-                            ICloudSyncManager.shared.syncNow()
-                        }
-                        .tint(.teal)
-                    }
-                } header: {
-                    Text("iCloud")
-                } footer: {
-                    Text("连接配置和密钥元数据通过 iCloud 键值存储同步；密码与私钥通过 iCloud 钥匙串同步。其他设备上的变更将在下次启动时生效。")
+                ScrollView {
+                    detailContent
+                        .padding(24)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
-            .navigationTitle("设置")
+            .background(Color.black)
+            .navigationTitle(L("设置"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("完成") { dismiss() }
+                    Button(L("完成")) { dismiss() }
                 }
             }
         }
     }
+
+    // MARK: - 分类列表（左栏）
+
+    private var categoryList: some View {
+        List(SettingsCategory.allCases, selection: selectedCategoryBinding) { category in
+            Label(L(category.title), systemImage: category.icon)
+                .frame(height: 38)
+                .tag(category)
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+    }
+
+    @ViewBuilder
+    private var detailContent: some View {
+        switch selectedCategory {
+        case .general: generalSection
+        case .theme: themeSection
+        case .appearance: appearanceSection
+        case .ai: aiSection
+        case .keys: keysSection
+        }
+    }
+
+    // MARK: - 通用
+
+    private var generalSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            sectionHeader(L("通用"))
+
+            settingsRow(label: L("语言")) {
+                Picker("", selection: $l10n.language) {
+                    Text("简体中文").tag("zh-Hans")
+                    Text("繁體中文").tag("zh-Hant")
+                    Text("日本語").tag("ja")
+                    Text("English").tag("en")
+                }
+                .pickerStyle(.menu)
+            }
+            hintText(L("语言切换立即生效。"))
+
+            settingsRow(label: L("编辑器")) {
+                Picker("", selection: $settings.terminalEditor) {
+                    ForEach(TerminalEditor.allCases) { editor in
+                        Text(editor.rawValue).tag(editor.rawValue)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            hintText(L("SFTP 文件列表中「使用编辑器打开」会在终端里执行该编辑器。"))
+
+            settingsRow(label: L("iCloud 同步")) {
+                Toggle("", isOn: $settings.iCloudSyncEnabled)
+                    .labelsHidden()
+                    .tint(.teal)
+                    .onChange(of: settings.iCloudSyncEnabled) { _, enabled in
+                        if enabled {
+                            ICloudSyncManager.shared.start()
+                            ICloudSyncManager.shared.syncNow()
+                        } else {
+                            ICloudSyncManager.shared.stop()
+                        }
+                    }
+            }
+            hintText(L("连接配置和密钥元数据通过 iCloud 键值存储同步；密码与私钥通过 iCloud 钥匙串同步。其他设备上的变更将在下次启动时生效。"))
+        }
+    }
+
+    // MARK: - 主题（占位）
+
+    private static let themeOptions: [(id: String, name: String)] = [
+        ("default", "默认深色"),
+        ("light", "浅色"),
+        ("high-contrast", "高对比度"),
+    ]
+
+    private var themeSection: some View {
+        VStack(alignment: .leading, spacing: 16) {
+            sectionHeader(L("主题"))
+
+            let columns = [
+                GridItem(.flexible(), spacing: 16),
+                GridItem(.flexible(), spacing: 16),
+                GridItem(.flexible(), spacing: 16),
+            ]
+            LazyVGrid(columns: columns, spacing: 16) {
+                ForEach(Self.themeOptions, id: \.id) { option in
+                    Text(L(option.name))
+                        .font(.subheadline)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 20)
+                        .background(
+                            RoundedRectangle(cornerRadius: 8)
+                                .fill(settings.themeName == option.id
+                                      ? Color.teal.opacity(0.25)
+                                      : Color(white: 0.15))
+                        )
+                        .overlay(
+                            RoundedRectangle(cornerRadius: 8)
+                                .stroke(settings.themeName == option.id ? Color.teal : Color.clear, lineWidth: 1)
+                        )
+                        .onTapGesture {
+                            settings.themeName = option.id
+                        }
+                }
+            }
+
+            hintText(L("主题切换即将推出，当前始终使用深色主题。"))
+        }
+    }
+
+    // MARK: - 外观
+
+    private var appearanceSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            sectionHeader(L("外观"))
+
+            settingsRow(label: L("字体")) {
+                Picker("", selection: $settings.terminalFontName) {
+                    ForEach(TerminalFontCatalog.all) { font in
+                        Text(font.displayName).tag(font.id)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            settingsRow(label: L("字号")) {
+                Picker("", selection: $settings.terminalFontSize) {
+                    ForEach(Array(stride(from: 9, through: 24, by: 1)), id: \.self) { size in
+                        Text("\(size)").tag(Double(size))
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+
+            settingsRow(label: L("光标样式")) {
+                Picker("", selection: $settings.terminalCursorStyle) {
+                    Text(L("块状")).tag("block")
+                    Text(L("下划线")).tag("underline")
+                    Text(L("竖线")).tag("bar")
+                }
+                .pickerStyle(.menu)
+            }
+
+            settingsRow(label: L("光标闪烁")) {
+                Toggle("", isOn: $settings.terminalCursorBlink)
+                    .labelsHidden()
+                    .tint(.teal)
+            }
+        }
+    }
+
+    // MARK: - AI
+
+    private var aiSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            sectionHeader(L("AI 助手"))
+
+            settingsRow(label: "Endpoint", controlWidth: 360) {
+                TextField("", text: $settings.aiEndpoint)
+                    .keyboardType(.URL)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            settingsRow(label: "API Key", controlWidth: 360) {
+                SecureField("", text: $settings.aiAPIKey)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            settingsRow(label: "Model", controlWidth: 360) {
+                TextField("", text: $settings.aiModel)
+                    .textInputAutocapitalization(.never)
+                    .autocorrectionDisabled()
+                    .textFieldStyle(.roundedBorder)
+            }
+
+            hintText(L("兼容 OpenAI 的 /chat/completions 接口"))
+        }
+    }
+
+    // MARK: - 密钥
+
+    private var keysSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            sectionHeader(L("密钥"))
+
+            // 直接内嵌密钥列表与导入/删除，不再跳转二级页面。
+            SSHKeyListContent()
+        }
+    }
+
+    // MARK: - 布局辅助（对齐 Mac 版的行式布局）
+
+    private func sectionHeader(_ title: String) -> some View {
+        Text(title)
+            .font(.title3.weight(.semibold))
+            .padding(.bottom, 4)
+    }
+
+    /// 行式布局：左侧固定宽标签，右侧控件放进统一宽度的列里，
+    /// 保证同一分区内所有控件的左缘和宽度对齐。
+    private func settingsRow<Content: View>(
+        label: String,
+        controlWidth: CGFloat = 240,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 12) {
+            Text(label)
+                .font(.subheadline)
+                .frame(width: 120, alignment: .leading)
+            content()
+                .frame(width: controlWidth, alignment: .leading)
+            Spacer()
+        }
+    }
+
+    private func hintText(_ text: String) -> some View {
+        Text(text)
+            .font(.caption)
+            .foregroundStyle(.secondary)
+    }
 }
 
-#Preview {
-    SettingsView()
+// MARK: - 分类
+
+enum SettingsCategory: String, CaseIterable, Identifiable {
+    case general, theme, appearance, ai, keys
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .general: return "通用"
+        case .theme: return "主题"
+        case .appearance: return "外观"
+        case .ai: return "AI 助手"
+        case .keys: return "密钥"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .general: return "gearshape"
+        case .theme: return "paintpalette"
+        case .appearance: return "paintbrush"
+        case .ai: return "cpu"
+        case .keys: return "key"
+        }
+    }
 }
 
 /// SFTP「使用编辑器打开」所用的终端编辑器（与 Mac 版 SettingsTerminalEditor
@@ -106,4 +316,8 @@ enum TerminalEditor: String, CaseIterable, Identifiable {
     case vim, nvim, nano, emacs, micro, fresh
 
     var id: String { rawValue }
+}
+
+#Preview {
+    SettingsView()
 }

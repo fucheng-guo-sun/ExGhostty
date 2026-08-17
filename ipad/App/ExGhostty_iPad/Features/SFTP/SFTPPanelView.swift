@@ -17,6 +17,7 @@ import UIKit
 import UniformTypeIdentifiers
 
 struct SFTPPanelView: View {
+    @StateObject private var l10n = LocalizationManager.shared
     @StateObject private var viewModel: SFTPViewModel
 
     /// Live terminal controller, used to "type" the editor command into the
@@ -55,28 +56,28 @@ struct SFTPPanelView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .onAppear { viewModel.open() }
         .onDisappear { viewModel.close() }
-        .alert("新建文件夹", isPresented: $showNewFolderAlert) {
-            TextField("文件夹名称", text: $newFolderName)
-            Button("取消", role: .cancel) { newFolderName = "" }
-            Button("创建") {
+        .alert(L("新建文件夹"), isPresented: $showNewFolderAlert) {
+            TextField(L("文件夹名称"), text: $newFolderName)
+            Button(L("取消"), role: .cancel) { newFolderName = "" }
+            Button(L("创建")) {
                 let name = newFolderName
                 newFolderName = ""
                 Task { await viewModel.createFolder(named: name) }
             }
         }
-        .alert("重命名", isPresented: renamingItemBinding) {
-            TextField("新名称", text: $renameText)
-            Button("取消", role: .cancel) { renamingItem = nil }
-            Button("确定") {
+        .alert(L("重命名"), isPresented: renamingItemBinding) {
+            TextField(L("新名称"), text: $renameText)
+            Button(L("取消"), role: .cancel) { renamingItem = nil }
+            Button(L("确定")) {
                 if let item = renamingItem {
                     renamingItem = nil
                     Task { await viewModel.rename(item, to: renameText) }
                 }
             }
         }
-        .alert("删除", isPresented: deletingItemBinding) {
-            Button("取消", role: .cancel) { deletingItem = nil }
-            Button("删除", role: .destructive) {
+        .alert(L("删除"), isPresented: deletingItemBinding) {
+            Button(L("取消"), role: .cancel) { deletingItem = nil }
+            Button(L("删除"), role: .destructive) {
                 if let item = deletingItem {
                     deletingItem = nil
                     Task { await viewModel.delete(item) }
@@ -85,23 +86,23 @@ struct SFTPPanelView: View {
         } message: {
             if let item = deletingItem {
                 Text(item.isDirectory
-                     ? "确定删除目录 “\(item.name)” 及其全部内容吗？"
-                     : "确定删除文件 “\(item.name)” 吗？")
+                     ? L("确定删除目录 “%@” 及其全部内容吗？", item.name)
+                     : L("确定删除文件 “%@” 吗？", item.name))
             }
         }
-        .alert("错误", isPresented: errorBinding) {
-            Button("确定", role: .cancel) { viewModel.errorMessage = nil }
+        .alert(L("错误"), isPresented: errorBinding) {
+            Button(L("确定"), role: .cancel) { viewModel.errorMessage = nil }
         } message: {
-            Text(viewModel.errorMessage ?? "")
+            Text(L(viewModel.errorMessage ?? ""))
         }
-        .alert("安装 fresh", isPresented: freshInstallBinding) {
-            Button("取消", role: .cancel) { freshInstallPendingItem = nil }
-            Button("安装") {
+        .alert(L("安装 fresh"), isPresented: freshInstallBinding) {
+            Button(L("取消"), role: .cancel) { freshInstallPendingItem = nil }
+            Button(L("安装")) {
                 freshInstallPendingItem = nil
                 installFresh()
             }
         } message: {
-            Text("远端未安装 fresh 编辑器。要在终端里执行安装脚本吗？")
+            Text(L("远端未安装 fresh 编辑器。要在终端里执行安装脚本吗？"))
         }
         .sheet(isPresented: $showDocumentPicker) {
             DocumentPicker(contentTypes: [.item], asCopy: true) { url in
@@ -131,7 +132,7 @@ struct SFTPPanelView: View {
         VStack(spacing: 12) {
             ProgressView()
                 .tint(.teal)
-            Text("正在打开 SFTP 会话…")
+            Text(L("正在打开 SFTP 会话…"))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
         }
@@ -143,14 +144,14 @@ struct SFTPPanelView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.largeTitle)
                 .foregroundStyle(.orange)
-            Text("SFTP 打开失败")
+            Text(L("SFTP 打开失败"))
                 .font(.headline)
-            Text(message)
+            Text(L(message))
                 .font(.footnote)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 32)
-            Button("重试") { viewModel.open() }
+            Button(L("重试")) { viewModel.open() }
                 .buttonStyle(.borderedProminent)
                 .tint(.teal)
         }
@@ -248,7 +249,7 @@ struct SFTPPanelView: View {
                 .frame(width: 28, height: 28)
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(help)
+        .accessibilityLabel(L(help))
     }
 
     // MARK: - File list
@@ -256,7 +257,7 @@ struct SFTPPanelView: View {
     private var fileList: some View {
         List {
             if viewModel.visibleItems.isEmpty {
-                Text("空目录")
+                Text(L("空目录"))
                     .font(.footnote)
                     .foregroundStyle(.secondary)
                     .frame(maxWidth: .infinity, alignment: .center)
@@ -276,20 +277,20 @@ struct SFTPPanelView: View {
                             Button(role: .destructive) {
                                 deletingItem = item
                             } label: {
-                                Label("删除", systemImage: "trash")
+                                Label(L("删除"), systemImage: "trash")
                             }
                             Button {
                                 renameText = item.name
                                 renamingItem = item
                             } label: {
-                                Label("重命名", systemImage: "pencil")
+                                Label(L("重命名"), systemImage: "pencil")
                             }
                             .tint(.orange)
                             if !item.isDirectory {
                                 Button {
                                     downloadAndShare(item)
                                 } label: {
-                                    Label("下载", systemImage: "arrow.down.circle")
+                                    Label(L("下载"), systemImage: "arrow.down.circle")
                                 }
                                 .tint(.teal)
                             }
@@ -299,35 +300,35 @@ struct SFTPPanelView: View {
                                 Button {
                                     downloadDirectoryAndShare(item)
                                 } label: {
-                                    Label("下载目录", systemImage: "arrow.down.circle")
+                                    Label(L("下载目录"), systemImage: "arrow.down.circle")
                                 }
                                 Button {
                                     openWithEditor(item)
                                 } label: {
-                                    Label("使用 \(editorName) 打开目录", systemImage: "square.and.pencil")
+                                    Label(L("使用 %@ 打开目录", editorName), systemImage: "square.and.pencil")
                                 }
                             } else {
                                 Button {
                                     downloadAndShare(item)
                                 } label: {
-                                    Label("下载", systemImage: "arrow.down.circle")
+                                    Label(L("下载"), systemImage: "arrow.down.circle")
                                 }
                                 Button {
                                     openWithEditor(item)
                                 } label: {
-                                    Label("使用 \(editorName) 打开", systemImage: "square.and.pencil")
+                                    Label(L("使用 %@ 打开", editorName), systemImage: "square.and.pencil")
                                 }
                             }
                             Button {
                                 renameText = item.name
                                 renamingItem = item
                             } label: {
-                                Label("重命名", systemImage: "pencil")
+                                Label(L("重命名"), systemImage: "pencil")
                             }
                             Button(role: .destructive) {
                                 deletingItem = item
                             } label: {
-                                Label("删除", systemImage: "trash")
+                                Label(L("删除"), systemImage: "trash")
                             }
                         }
                 }
@@ -396,7 +397,7 @@ struct SFTPPanelView: View {
                     .lineLimit(1)
                     .truncationMode(.middle)
                 Spacer()
-                Text("\(ByteCountFormatter.string(fromByteCount: Int64(transfer.sent), countStyle: .file)) / \(transfer.total > 0 ? ByteCountFormatter.string(fromByteCount: Int64(transfer.total), countStyle: .file) : "未知")")
+                Text("\(ByteCountFormatter.string(fromByteCount: Int64(transfer.sent), countStyle: .file)) / \(transfer.total > 0 ? ByteCountFormatter.string(fromByteCount: Int64(transfer.total), countStyle: .file) : L("未知"))")
                     .font(.system(.caption2, design: .monospaced))
                     .monospacedDigit()
                     .foregroundStyle(.secondary)

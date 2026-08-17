@@ -8,6 +8,7 @@
 import SwiftUI
 
 struct ConnectionEditView: View {
+    @StateObject private var l10n = LocalizationManager.shared
     @Environment(\.dismiss) private var dismiss
 
     /// nil when creating a new connection.
@@ -115,15 +116,15 @@ struct ConnectionEditView: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("连接") {
-                    TextField("名称（可选）", text: $name)
-                    TextField("主机", text: $host)
+                Section(L("连接")) {
+                    TextField(L("名称（可选）"), text: $name)
+                    TextField(L("主机"), text: $host)
                         .keyboardType(.URL)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    TextField("端口", text: $port)
+                    TextField(L("端口"), text: $port)
                         .keyboardType(.numberPad)
-                    TextField("分组（可选）", text: $group)
+                    TextField(L("分组（可选）"), text: $group)
                     if !groupSuggestions.isEmpty {
                         ScrollView(.horizontal, showsIndicators: false) {
                             HStack(spacing: 8) {
@@ -146,12 +147,12 @@ struct ConnectionEditView: View {
                 }
 
                 Section {
-                    TextField("用户名", text: $username)
+                    TextField(L("用户名"), text: $username)
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
-                    Picker("认证方式", selection: $authMode) {
+                    Picker(L("认证方式"), selection: $authMode) {
                         ForEach(SSHAuthMode.allCases) { mode in
-                            Text(mode.displayName).tag(mode)
+                            Text(L(mode.displayName)).tag(mode)
                         }
                     }
                     .pickerStyle(.segmented)
@@ -159,7 +160,7 @@ struct ConnectionEditView: View {
                     switch authMode {
                     case .password:
                         SecureField(
-                            connection == nil ? "密码" : "密码（留空保持不变）",
+                            connection == nil ? L("密码") : L("密码（留空保持不变）"),
                             text: $password
                         )
                     case .key:
@@ -167,12 +168,12 @@ struct ConnectionEditView: View {
                             NavigationLink {
                                 SSHKeyManagementView()
                             } label: {
-                                Label("还没有密钥，去导入", systemImage: "key")
+                                Label(L("还没有密钥，去导入"), systemImage: "key")
                                     .foregroundStyle(.teal)
                             }
                         } else {
-                            Picker("密钥", selection: $keyID) {
-                                Text("未选择").tag(UUID?.none)
+                            Picker(L("密钥"), selection: $keyID) {
+                                Text(L("未选择")).tag(UUID?.none)
                                 ForEach(keyStore.keys) { key in
                                     Text(key.name).tag(UUID?.some(key.id))
                                 }
@@ -180,33 +181,33 @@ struct ConnectionEditView: View {
                             NavigationLink {
                                 SSHKeyManagementView()
                             } label: {
-                                Label("管理密钥", systemImage: "key")
+                                Label(L("管理密钥"), systemImage: "key")
                                     .foregroundStyle(.teal)
                             }
                         }
                         SecureField(
-                            connection == nil ? "密码（可选，作为回退）" : "密码（可选，留空保持不变）",
+                            connection == nil ? L("密码（可选，作为回退）") : L("密码（可选，留空保持不变）"),
                             text: $password
                         )
                     }
                 } header: {
-                    Text("认证")
+                    Text(L("认证"))
                 } footer: {
                     if authMode == .key {
-                        Text("密钥认证失败时，可回退使用该密码登录。")
+                        Text(L("密钥认证失败时，可回退使用该密码登录。"))
                     }
                 }
 
                 Section {
-                    Toggle("登录后切换用户", isOn: $identitySwitchEnabled)
+                    Toggle(L("登录后切换用户"), isOn: $identitySwitchEnabled)
                     if identitySwitchEnabled {
-                        TextField("目标用户名（如 root）", text: $identityUsername)
+                        TextField(L("目标用户名（如 root）"), text: $identityUsername)
                             .textInputAutocapitalization(.never)
                             .autocorrectionDisabled()
                         SecureField(
                             hasStoredIdentityPassword
-                                ? "sudo 密码（留空保持不变）"
-                                : "sudo 密码（可选，NOPASSWD 可留空）",
+                                ? L("sudo 密码（留空保持不变）")
+                                : L("sudo 密码（可选，NOPASSWD 可留空）"),
                             text: $identityPassword
                         )
                     }
@@ -214,37 +215,37 @@ struct ConnectionEditView: View {
                     Text("User Identity")
                 } footer: {
                     if identitySwitchEnabled {
-                        Text("登录后自动执行 sudo su 切换到目标用户，终端及 SFTP、Docker、系统监控等远程操作均以该用户身份执行。")
+                        Text(L("登录后自动执行 sudo su 切换到目标用户，终端及 SFTP、Docker、系统监控等远程操作均以该用户身份执行。"))
                     }
                 }
 
-                Section("跳板机") {
-                    Picker("跳板机", selection: $jumpHostID) {
-                        Text("直连").tag(UUID?.none)
+                Section(L("跳板机")) {
+                    Picker(L("跳板机"), selection: $jumpHostID) {
+                        Text(L("直连")).tag(UUID?.none)
                         ForEach(jumpHostCandidates) { candidate in
                             Text(candidate.displayName).tag(UUID?.some(candidate.id))
                         }
                     }
                 }
 
-                Section("高级") {
-                    Picker("编码", selection: $encoding) {
+                Section(L("高级")) {
+                    Picker(L("编码"), selection: $encoding) {
                         ForEach(ConnectionEncoding.allCases) { encoding in
                             Text(encoding.rawValue).tag(encoding)
                         }
                     }
-                    TextField("备注", text: $notes, axis: .vertical)
+                    TextField(L("备注"), text: $notes, axis: .vertical)
                         .lineLimit(2...4)
                 }
             }
-            .navigationTitle(connection == nil ? "新增连接" : "编辑连接")
+            .navigationTitle(connection == nil ? L("新增连接") : L("编辑连接"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("取消") { dismiss() }
+                    Button(L("取消")) { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("保存") { save() }
+                    Button(L("保存")) { save() }
                         .disabled(!canSave)
                 }
             }

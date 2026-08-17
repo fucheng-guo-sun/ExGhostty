@@ -11,6 +11,7 @@
 import SwiftUI
 
 struct SystemMonitorPanelView: View {
+    @StateObject private var l10n = LocalizationManager.shared
     @StateObject private var viewModel: SystemMonitorViewModel
 
     init(session: SSHSession) {
@@ -41,7 +42,7 @@ struct SystemMonitorPanelView: View {
     private var loadingView: some View {
         VStack(spacing: 12) {
             ProgressView()
-            Text("正在采集系统数据…")
+            Text(L("正在采集系统数据…"))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
         }
@@ -52,16 +53,16 @@ struct SystemMonitorPanelView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.largeTitle)
                 .foregroundStyle(.yellow)
-            Text("未检测到 xtop")
+            Text(L("未检测到 xtop"))
                 .font(.headline)
-            Text("系统监控需要在远端主机安装 xtop。")
+            Text(L("系统监控需要在远端主机安装 xtop。"))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Link("打开 xtop 项目主页", destination: URL(string: "https://github.com/rarnu/xtop")!)
+            Link(L("打开 xtop 项目主页"), destination: URL(string: "https://github.com/rarnu/xtop")!)
                 .font(.subheadline)
                 .tint(.teal)
-            Button("重试") { viewModel.retry() }
+            Button(L("重试")) { viewModel.retry() }
                 .buttonStyle(.borderedProminent)
                 .tint(.teal)
         }
@@ -73,13 +74,13 @@ struct SystemMonitorPanelView: View {
             Image(systemName: "xmark.octagon")
                 .font(.largeTitle)
                 .foregroundStyle(.red)
-            Text("采集失败")
+            Text(L("采集失败"))
                 .font(.headline)
-            Text(message)
+            Text(L(message))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("重试") { viewModel.retry() }
+            Button(L("重试")) { viewModel.retry() }
                 .buttonStyle(.borderedProminent)
                 .tint(.teal)
         }
@@ -150,7 +151,7 @@ struct SystemMonitorPanelView: View {
     // MARK: - 内存
 
     private func memoryCard(_ output: XTopOutput) -> some View {
-        MonitorCard(title: "内存", systemImage: "memorychip") {
+        MonitorCard(title: L("内存"), systemImage: "memorychip") {
             if let mem = output.mem {
                 VStack(alignment: .leading, spacing: 8) {
                     HStack {
@@ -179,9 +180,9 @@ struct SystemMonitorPanelView: View {
                     .frame(height: 10)
 
                     HStack(spacing: 16) {
-                        MemoryLegendItem(color: .orange, label: "已用", value: mem.Used.formattedBytes())
-                        MemoryLegendItem(color: .green, label: "缓存", value: mem.Cached.formattedBytes())
-                        MemoryLegendItem(color: Color(white: 0.35), label: "空闲", value: mem.Free.formattedBytes())
+                        MemoryLegendItem(color: .orange, label: L("已用"), value: mem.Used.formattedBytes())
+                        MemoryLegendItem(color: .green, label: L("缓存"), value: mem.Cached.formattedBytes())
+                        MemoryLegendItem(color: Color(white: 0.35), label: L("空闲"), value: mem.Free.formattedBytes())
                     }
                 }
             } else {
@@ -193,7 +194,7 @@ struct SystemMonitorPanelView: View {
     // MARK: - 磁盘
 
     private func diskCard(_ mounts: [XTopDiskMount]) -> some View {
-        MonitorCard(title: "磁盘", systemImage: "internaldrive") {
+        MonitorCard(title: L("磁盘"), systemImage: "internaldrive") {
             VStack(alignment: .leading, spacing: 12) {
                 ForEach(mounts) { mount in
                     VStack(alignment: .leading, spacing: 4) {
@@ -228,7 +229,7 @@ struct SystemMonitorPanelView: View {
     // MARK: - 网络
 
     private func networkCard(_ net: XTopNet) -> some View {
-        MonitorCard(title: "网络", systemImage: "network") {
+        MonitorCard(title: L("网络"), systemImage: "network") {
             VStack(alignment: .leading, spacing: 8) {
                 HStack(spacing: 24) {
                     Label {
@@ -285,7 +286,7 @@ struct SystemMonitorPanelView: View {
 
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack {
-                                        Text("GPU 负载")
+                                        Text(L("GPU 负载"))
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                         Spacer()
@@ -299,7 +300,7 @@ struct SystemMonitorPanelView: View {
 
                                 VStack(alignment: .leading, spacing: 2) {
                                     HStack {
-                                        Text("显存")
+                                        Text(L("显存"))
                                             .font(.caption2)
                                             .foregroundStyle(.secondary)
                                         Spacer()
@@ -331,7 +332,7 @@ struct SystemMonitorPanelView: View {
                         }
                     }
                 } else {
-                    Text(gpu.Message ?? "GPU 不可用")
+                    Text(L(gpu.Message ?? "GPU 不可用"))
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
@@ -352,16 +353,16 @@ struct SystemMonitorPanelView: View {
     // MARK: - 进程
 
     private func processCard(_ proc: XTopProc) -> some View {
-        MonitorCard(title: "进程（共 \(proc.Total) 个）", systemImage: "list.number") {
+        MonitorCard(title: L("进程（共 %d 个）", proc.Total), systemImage: "list.number") {
             VStack(alignment: .leading, spacing: 10) {
                 if let topCPU = proc.TopCPU, !topCPU.isEmpty {
                     ProcessSection(title: "Top CPU", procs: topCPU) { $0.CPU.formattedPercent() }
                 }
                 if let topMem = proc.TopMem, !topMem.isEmpty {
-                    ProcessSection(title: "Top 内存", procs: topMem) { $0.MemRSS.formattedBytes() }
+                    ProcessSection(title: L("Top 内存"), procs: topMem) { $0.MemRSS.formattedBytes() }
                 }
                 if let topDisk = proc.TopDisk, !topDisk.isEmpty {
-                    ProcessSection(title: "Top 磁盘", procs: topDisk) { $0.CPU.formattedPercent() }
+                    ProcessSection(title: L("Top 磁盘"), procs: topDisk) { $0.CPU.formattedPercent() }
                 }
             }
         }
@@ -439,8 +440,10 @@ private struct ProgressRing<Content: View>: View {
 
 /// 数据尚未到达时的占位提示。
 private struct EmptyDataHint: View {
+    @StateObject private var l10n = LocalizationManager.shared
+
     var body: some View {
-        Text("等待数据…")
+        Text(L("等待数据…"))
             .font(.caption)
             .foregroundStyle(.secondary)
             .frame(maxWidth: .infinity, alignment: .center)

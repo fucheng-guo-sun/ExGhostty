@@ -10,6 +10,7 @@
 import SwiftUI
 
 struct SessionReusePanelView: View {
+    @StateObject private var l10n = LocalizationManager.shared
     @StateObject private var viewModel: SessionReuseViewModel
 
     /// Switches the session page back to the terminal panel (attach/create/
@@ -35,12 +36,12 @@ struct SessionReusePanelView: View {
             }
             .alert(item: $killConfirmation) { item in
                 Alert(
-                    title: Text("删除 \(item.kind.displayName) 会话"),
-                    message: Text("确定要删除会话「\(item.name)」吗？该操作不可撤销。"),
-                    primaryButton: .destructive(Text("删除")) {
+                    title: Text(L("删除 %@ 会话", item.kind.displayName)),
+                    message: Text(L("确定要删除会话「%@」吗？该操作不可撤销。", item.name)),
+                    primaryButton: .destructive(Text(L("删除"))) {
                         viewModel.killSession(kind: item.kind, name: item.name)
                     },
-                    secondaryButton: .cancel(Text("取消"))
+                    secondaryButton: .cancel(Text(L("取消")))
                 )
             }
     }
@@ -64,7 +65,7 @@ struct SessionReusePanelView: View {
         VStack(spacing: 12) {
             Spacer()
             ProgressView()
-            Text("正在检测远端 tmux / rmux / zellij 环境…")
+            Text(L("正在检测远端 tmux / rmux / zellij 环境…"))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -77,14 +78,14 @@ struct SessionReusePanelView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 32))
                 .foregroundStyle(.secondary)
-            Text("检测远端环境失败")
+            Text(L("检测远端环境失败"))
                 .font(.headline)
-            Text(message)
+            Text(L(message))
                 .font(.caption)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .padding(.horizontal, 24)
-            Button("重试") {
+            Button(L("重试")) {
                 Task { await viewModel.refresh() }
             }
             .buttonStyle(.borderedProminent)
@@ -103,10 +104,10 @@ struct SessionReusePanelView: View {
                     .foregroundStyle(.secondary)
                     .padding(.top, 24)
 
-                Text("远端未安装 tmux / rmux / zellij")
+                Text(L("远端未安装 tmux / rmux / zellij"))
                     .font(.headline)
 
-                Text("会话复用需要远端安装终端复用工具。可以将下面的安装命令一键发送到当前终端标签页执行。")
+                Text(L("会话复用需要远端安装终端复用工具。可以将下面的安装命令一键发送到当前终端标签页执行。"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -132,7 +133,7 @@ struct SessionReusePanelView: View {
                     Button {
                         viewModel.sendInstallCommand(kind: kind)
                     } label: {
-                        Label("发送到终端", systemImage: "paperplane")
+                        Label(L("发送到终端"), systemImage: "paperplane")
                             .font(.caption)
                     }
                     .buttonStyle(.borderedProminent)
@@ -146,13 +147,13 @@ struct SessionReusePanelView: View {
                     .foregroundStyle(.secondary)
                     .textSelection(.enabled)
             } else {
-                Text("rmux 不在 apt 仓库中，请参照其项目文档手动安装。")
+                Text(L("rmux 不在 apt 仓库中，请参照其项目文档手动安装。"))
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
 
             if kind == .zellij {
-                Text("较旧的 Ubuntu 可能没有 zellij 软件包，可改用 cargo install zellij。")
+                Text(L("较旧的 Ubuntu 可能没有 zellij 软件包，可改用 cargo install zellij。"))
                     .font(.caption2)
                     .foregroundStyle(.tertiary)
             }
@@ -179,7 +180,7 @@ struct SessionReusePanelView: View {
                 HStack(spacing: 6) {
                     Image(systemName: "info.circle")
                         .font(.caption)
-                    Text("操作会以命令形式发送到当前终端标签页执行")
+                    Text(L("操作会以命令形式发送到当前终端标签页执行"))
                         .font(.caption)
                     Spacer()
                 }
@@ -240,7 +241,7 @@ struct SessionReusePanelView: View {
                         .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("新建 \(kind.displayName) 会话")
+                .accessibilityLabel(L("新建 %@ 会话", kind.displayName))
 
                 Button {
                     viewModel.detach(kind: kind)
@@ -251,7 +252,7 @@ struct SessionReusePanelView: View {
                         .frame(width: 24, height: 24)
                 }
                 .buttonStyle(.plain)
-                .accessibilityLabel("从当前 \(kind.displayName) 会话断开")
+                .accessibilityLabel(L("从当前 %@ 会话断开", kind.displayName))
             }
             .padding(.horizontal, 12)
             .padding(.vertical, 8)
@@ -260,7 +261,7 @@ struct SessionReusePanelView: View {
 
             if sessions.isEmpty {
                 HStack {
-                    Text("暂无会话")
+                    Text(L("暂无会话"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                     Spacer()
@@ -304,7 +305,7 @@ struct SessionReusePanelView: View {
                     .frame(width: 32, height: 32)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("删除会话 \(name)")
+            .accessibilityLabel(L("删除会话 %@", name))
         }
         .padding(.horizontal, 12)
         .padding(.vertical, 6)
@@ -321,7 +322,7 @@ struct SessionReusePanelView: View {
         NavigationStack {
             Form {
                 Section {
-                    TextField("会话名称（仅限英文和数字）", text: $newSessionName)
+                    TextField(L("会话名称（仅限英文和数字）"), text: $newSessionName)
                         .font(.body.monospaced())
                         .autocorrectionDisabled()
                         .textInputAutocapitalization(.never)
@@ -333,17 +334,17 @@ struct SessionReusePanelView: View {
                             }
                         }
                 } footer: {
-                    Text("将在当前终端标签页中执行 \(kind.displayName) 命令。")
+                    Text(L("将在当前终端标签页中执行 %@ 命令。", kind.displayName))
                 }
             }
-            .navigationTitle("新建 \(kind.displayName) 会话")
+            .navigationTitle(L("新建 %@ 会话", kind.displayName))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
-                    Button("取消") { newSessionKind = nil }
+                    Button(L("取消")) { newSessionKind = nil }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("创建") {
+                    Button(L("创建")) {
                         let name = newSessionName
                         newSessionKind = nil
                         viewModel.createSession(kind: kind, name: name)

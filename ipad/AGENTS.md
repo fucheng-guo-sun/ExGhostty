@@ -27,22 +27,25 @@
 - **Tab/会话**：`Features/Session/TerminalTabStore.swift` — `TerminalTab` 持有 `SSHSession` + `TerminalBox`（弱引用终端控制器）。所有 tab 用 `ZStack + opacity` 常驻视图树保活，切换不销毁会话——新增面板/页面时必须保持这一模式。
 - **SSH 层**（`SSH/`）：`SSHSession`（NIOSSH，`MultiThreadedEventLoopGroup(3)`，子 channel 承载 shell/exec/sftp）。认证 `FlexibleAuthDelegate`（私钥优先、回落密码；**不支持 keyboard-interactive、不支持加密私钥**）。跳板机 = `openNestedTransport`（跳板机 directTCPIP 上二次握手，经 `SSHDataCodec` 做字节转换）。`SFTPClient` 是手写 SFTP v3。**端口转发功能已从 iPad 版移除**（用户需求，Mac 版仍有）。
 - **终端接入**：`SSH/SshTerminalView.swift` — `class SshTerminalView: TerminalView, TerminalViewDelegate`（用 UIKit 的 `TerminalView`，**不是** `SwiftUITerminalView`，后者仅 DEBUG 内部调试用）。数据流：下行 `channelRead` → 1KB 切片 → 主线程 `feed(byteArray:)`；上行 `TerminalViewDelegate.send` → `writeAndFlush`；resize → `WindowChangeRequest`。宿主 `TerminalHostViewController`（UIKit 容器 + `keyboardLayoutGuide`），经 `TerminalSessionView` 内 `UIViewControllerRepresentable` 桥接进 SwiftUI。
-- **功能面板**（`Features/`，每个目录一个域）：`Session`（标签页）、`Home`（连接列表/编辑）、`Settings`、`Keys`（私钥管理，自研 OpenSSH/PEM 解析）、`SFTP`、`SessionReuse`（tmux/rmux/zellij）、`PortUsage`、`Docker`、`SystemMonitor`（远端 `xtop --all --json --stream` 流式采集，含 GPU/磁盘读写，对齐 Mac 版）、`AIAssistant`（OpenAI 兼容 SSE 流式）。所有面板注入同一个 `SSHSession`，通过 `session.exec()` / `execStream()` 跑远程命令；需要"往终端打字"的面板额外拿 `TerminalBox`。
+- **功能面板**（`Features/`，每个目录一个域）：`Session`（标签页）、`Home`（连接列表/编辑）、`Settings`、`Keys`（私钥管理，自研 OpenSSH/PEM 解析；`SSHKeyListContent` 是无导航壳的列表+导入/删除内容视图，设置页 Keys 分区直接内嵌它；`SSHKeyManagementView` 是其 push 整页包装，连接编辑页仍在用）、`SFTP`、`SessionReuse`（tmux/rmux/zellij）、`PortUsage`、`Docker`、`SystemMonitor`（远端 `xtop --all --json --stream` 流式采集，含 GPU/磁盘读写，对齐 Mac 版）、`AIAssistant`（OpenAI 兼容 SSE 流式）。所有面板注入同一个 `SSHSession`，通过 `session.exec()` / `execStream()` 跑远程命令；需要"往终端打字"的面板额外拿 `TerminalBox`。
+- **设置页**（`Features/Settings/`）：Mac 风格左右分栏——左 200pt 分类 `List`（`SettingsCategory`：通用/主题/外观/AI/密钥），右侧 ScrollView detail；`settingsRow(label:controlWidth:)` 统一"120pt 标签 + 定宽控件列"的行式对齐（默认控件宽 240，AI 输入框 360，行内不要再给控件单独设 `.frame(width:)`）。经 `SettingsViewController`（全屏 push 转场 + 强制深色）从主界面推出。主题切换仅 UI 占位。
 
 ## 代码约定
 
 - 命名：类型 PascalCase / 成员 camelCase，英文；面板成对出现 `XxxPanelView` + `XxxViewModel`；持久化单例 `XxxStore.shared` + `@Published`。
 - **每个文件头部写 5 行左右的 block 注释**说明职责和坑——新文件必须照做。
-- 注释语言现状混用：`SSH/`、`Models/` 为英文，`Features/` ViewModel 多为中文；UI 字符串全中文（无本地化）。改哪个层就跟随哪个层的语言。
+- 注释语言现状混用：`SSH/`、`Models/` 为英文，`Features/` ViewModel 多为中文。改哪个层就跟随哪个层的语言。
+- **UI 文案走应用内翻译**：所有用户可见字符串用 `L("中文原文")` 包裹（key 即简体中文原文；翻译表在 `Models/Translations*.swift`，按 area/语言分文件——`Translations.{home,session,Panels,ai}.swift` 并入 `Translations.en`，`Translations.zhHant.swift` / `Translations.ja.swift` 为整表）。支持语言：简体中文（原文）/ 繁體中文 / 日本語 / English。含 L() 的 View struct 必须加 `@StateObject private var l10n = LocalizationManager.shared` 以订阅语言切换。ViewModel 消息存中文原文，在 View 显示处包裹 L()。
 - 持久化：配置 JSON → UserDefaults；秘密（密码/私钥/sudo 密码）→ Keychain（`KeychainHelper`，三个 service 前缀）；iCloud 同步走 `NSUbiquitousKeyValueStore` 只同步非秘密数据。
 - 模型 Codable 用 `decodeIfPresent` + 默认值做旧存档兼容（参考 `SSHConnectionConfig`）。
 - ViewModel 轮询统一 `Task { while !Task.isCancelled { ... } }`，`deinit` cancel。
+- 终端字体：`App/ExGhostty_iPad/Fonts/` 内置 5 款字体（JetBrains Mono Nerd Font 与其 Mono 变体各四字重——后者来自 nerd-fonts 官方发布包；Fira Code / JuliaMono / Monaspace Neon 单字重，均 OFL），`Info.plist` 的 `UIAppFonts` 注册；`Models/TerminalFontCatalog.swift` 应用字体+字号到 TerminalView（PS 字体名以字体文件内嵌为准，如 `JetBrainsMonoNFM-Regular`）。主题切换只有设置页 UI 占位，未实现。
 - 颜色无主题系统（黑底 + `Color.teal` 强调），UI 文本多用 `.monospaced`。
 
 ## 已知坑 / 技术债（改动前先读这里）
 
 - `AcceptAllHostKeysDelegate` 无条件接受所有 host key（MITM 风险，无 TOFU/known_hosts）。
-- `SettingsStore.terminalFontSize`（9–24）**只存不用**，没有任何代码把它应用到终端字体——设置项是空接的。
+- `SettingsStore.terminalFontSize` / `terminalFontName` 已接线到终端（`TerminalHostViewController` 订阅变更并调用 `TerminalFontCatalog.apply`）。
 - 命名已统一为 ExGhostty（`ExGhosttyApp`、文件头 `ExGhostty_iPad`、Keychain service `com.xjai.exghostty.ipad.*`、UserDefaults key `exghostty.ipad.*`）。旧的 `iosterminal.*` / `org.tirania.SwiftTerm.iosSampleApp1.*` 数据由 `Models/LegacyDataMigration.swift`（启动时）和 `KeychainHelper`（读取时懒迁移）负责迁移——新增持久化 key 时用 `exghostty.ipad.` 前缀。
 - iCloud 同步单向生效：远端变更写入 UserDefaults 后各 Store 不监听更新，**下次启动才生效**；`ICloudSyncManager` 硬编码各 Store 的 UserDefaults key，改 key 会静默失配。
 - `SshTerminalView.observeIdentityPrompt` 的 sudo 密码嗅探只匹配输出尾部 256 字节里的 "password"（英文 locale 限定，很脆）。

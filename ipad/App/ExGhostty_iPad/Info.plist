@@ -20,6 +20,20 @@
 	<string>1</string>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>UIAppFonts</key>
+	<array>
+		<string>JetBrainsMonoNerdFont-Regular.ttf</string>
+		<string>JetBrainsMonoNerdFont-Bold.ttf</string>
+		<string>JetBrainsMonoNerdFont-Italic.ttf</string>
+		<string>JetBrainsMonoNerdFont-BoldItalic.ttf</string>
+		<string>JetBrainsMonoNerdFontMono-Regular.ttf</string>
+		<string>JetBrainsMonoNerdFontMono-Bold.ttf</string>
+		<string>JetBrainsMonoNerdFontMono-Italic.ttf</string>
+		<string>JetBrainsMonoNerdFontMono-BoldItalic.ttf</string>
+		<string>FiraCode-Regular.ttf</string>
+		<string>JuliaMono-Regular.ttf</string>
+		<string>MonaspaceNeon-Regular.otf</string>
+	</array>
 	<key>UILaunchStoryboardName</key>
 	<string>LaunchScreen</string>
 	<key>UIRequiredDeviceCapabilities</key>

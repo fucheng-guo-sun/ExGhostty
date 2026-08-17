@@ -11,12 +11,12 @@
 import SwiftUI
 
 struct ConnectionListView: View {
+    @StateObject private var l10n = LocalizationManager.shared
     @EnvironmentObject private var tabStore: TerminalTabStore
     @StateObject private var store = ConnectionStore.shared
     @Binding var isCollapsed: Bool
     @State private var editingConnection: SSHConnectionConfig?
     @State private var isAdding = false
-    @State private var showSettings = false
     @State private var connectionToDelete: SSHConnectionConfig?
 
     /// Non-empty groups sorted by name, then the ungrouped bucket ("未分组") last.
@@ -66,17 +66,14 @@ struct ConnectionListView: View {
         .sheet(item: $editingConnection) { config in
             ConnectionEditView(connection: config)
         }
-        .sheet(isPresented: $showSettings) {
-            SettingsView()
-        }
-        .alert("删除连接", isPresented: deleteAlertBinding, presenting: connectionToDelete) { config in
-            Button("删除", role: .destructive) {
+        .alert(L("删除连接"), isPresented: deleteAlertBinding, presenting: connectionToDelete) { config in
+            Button(L("删除"), role: .destructive) {
                 tabStore.closeTabs(for: config.id)
                 store.delete(config)
             }
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: { config in
-            Text("确定要删除「\(config.displayName)」吗？")
+            Text(L("确定要删除「%@」吗？", config.displayName))
         }
     }
 
@@ -96,7 +93,7 @@ struct ConnectionListView: View {
                     .font(.system(size: 15, weight: .medium))
                     .foregroundStyle(.secondary)
             }
-            Text("SSH 连接")
+            Text(L("SSH 连接"))
                 .font(.system(size: 15, weight: .semibold))
             Spacer()
             Button {
@@ -127,7 +124,7 @@ struct ConnectionListView: View {
             }
             Spacer()
             Button {
-                showSettings = true
+                SettingsViewController.present()
             } label: {
                 Image(systemName: "gearshape")
                     .font(.system(size: 15, weight: .medium))
@@ -143,10 +140,10 @@ struct ConnectionListView: View {
             Image(systemName: "server.rack")
                 .font(.system(size: 34))
                 .foregroundStyle(.secondary)
-            Text("没有 SSH 连接")
+            Text(L("没有 SSH 连接"))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
-            Text("点击右上角 + 新增")
+            Text(L("点击右上角 + 新增"))
                 .font(.caption)
                 .foregroundStyle(.tertiary)
         }
@@ -156,7 +153,7 @@ struct ConnectionListView: View {
     private var connectionList: some View {
         List {
             ForEach(groupedConnections, id: \.name) { section in
-                Section(section.name) {
+                Section(L(section.name)) {
                     ForEach(section.items) { config in
                         connectionRow(for: config)
                     }
@@ -178,24 +175,24 @@ struct ConnectionListView: View {
             Button {
                 editingConnection = config
             } label: {
-                Label("编辑", systemImage: "pencil")
+                Label(L("编辑"), systemImage: "pencil")
             }
             Button(role: .destructive) {
                 connectionToDelete = config
             } label: {
-                Label("删除", systemImage: "trash")
+                Label(L("删除"), systemImage: "trash")
             }
         }
         .swipeActions(edge: .trailing) {
             Button(role: .destructive) {
                 connectionToDelete = config
             } label: {
-                Label("删除", systemImage: "trash")
+                Label(L("删除"), systemImage: "trash")
             }
             Button {
                 editingConnection = config
             } label: {
-                Label("编辑", systemImage: "pencil")
+                Label(L("编辑"), systemImage: "pencil")
             }
             .tint(.orange)
         }
@@ -205,9 +202,9 @@ struct ConnectionListView: View {
         HStack {
             Spacer()
             Button {
-                showSettings = true
+                SettingsViewController.present()
             } label: {
-                Label("设置", systemImage: "gearshape")
+                Label(L("设置"), systemImage: "gearshape")
                     .font(.system(size: 15, weight: .medium))
             }
             Spacer()

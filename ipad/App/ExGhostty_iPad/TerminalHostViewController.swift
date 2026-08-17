@@ -3,13 +3,19 @@
 //  ExGhostty_iPad
 //
 //  UIKit container hosting a full-size SshTerminalView with keyboard handling.
+//  Also applies the terminal font settings (SettingsStore) and re-applies
+//  them live when they change.
 //
 
 import UIKit
+import Combine
+import SwiftTerm
 
 final class TerminalHostViewController: UIViewController {
     private let terminalView = SshTerminalView(frame: .zero)
     private var session: SSHSession?
+    private var fontCancellable: AnyCancellable?
+    private var cursorCancellable: AnyCancellable?
 
     var hostedTerminalView: SshTerminalView { terminalView }
 
@@ -34,6 +40,36 @@ final class TerminalHostViewController: UIViewController {
         } else {
             terminalView.bottomAnchor.constraint(equalTo: view.bottomAnchor).isActive = true
         }
+
+        // 初始应用 + 跟随设置变更（sink 会立即回放当前值）。
+        let settings = SettingsStore.shared
+        fontCancellable = settings.$terminalFontName
+            .combineLatest(settings.$terminalFontSize)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] name, size in
+                guard let self else { return }
+                TerminalFontCatalog.apply(
+                    to: self.terminalView,
+                    fontID: name,
+                    size: CGFloat(size)
+                )
+            }
+        cursorCancellable = settings.$terminalCursorStyle
+            .combineLatest(settings.$terminalCursorBlink)
+            .receive(on: RunLoop.main)
+            .sink { [weak self] style, blink in
+                guard let self else { return }
+                let cursorStyle: CursorStyle
+                switch (style, blink) {
+                case ("underline", true): cursorStyle = .blinkUnderline
+                case ("underline", false): cursorStyle = .steadyUnderline
+                case ("bar", true): cursorStyle = .blinkBar
+                case ("bar", false): cursorStyle = .steadyBar
+                case (_, true): cursorStyle = .blinkBlock
+                default: cursorStyle = .steadyBlock
+                }
+                self.terminalView.getTerminal().setCursorStyle(cursorStyle)
+            }
 
         if let session {
             terminalView.start(with: session)

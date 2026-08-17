@@ -87,7 +87,7 @@ enum AIAssistantError: LocalizedError {
         case .invalidResponse:
             return "AI 服务返回了无效的响应。"
         case .httpError(let statusCode, let message):
-            return "AI 请求失败（\(statusCode)）：\(message)"
+            return L("AI 请求失败（%d）：%@", statusCode, message)
         }
     }
 }
@@ -151,7 +151,7 @@ enum AIAssistantService {
         }
         guard (200...299).contains(httpResponse.statusCode) else {
             let data = try await bytes.reduce(into: Data()) { $0.append($1) }
-            let text = String(data: data, encoding: .utf8) ?? "未知错误"
+            let text = String(data: data, encoding: .utf8) ?? L("未知错误")
             throw AIAssistantError.httpError(statusCode: httpResponse.statusCode, message: text)
         }
 

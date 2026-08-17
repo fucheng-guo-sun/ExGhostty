@@ -10,6 +10,7 @@ import SwiftUI
 
 /// 端口使用面板：展示远程主机的监听端口，支持搜索过滤与结束进程。
 struct PortUsagePanelView: View {
+    @StateObject private var l10n = LocalizationManager.shared
     @StateObject private var viewModel: PortUsageViewModel
     @State private var searchText = ""
     @State private var killTarget: PortUsageEntry?
@@ -43,16 +44,16 @@ struct PortUsagePanelView: View {
         .onDisappear {
             viewModel.stopAutoRefresh()
         }
-        .alert("结束进程", isPresented: $showKillConfirm, presenting: killTarget) { entry in
-            Button("结束", role: .destructive) {
+        .alert(L("结束进程"), isPresented: $showKillConfirm, presenting: killTarget) { entry in
+            Button(L("结束"), role: .destructive) {
                 Task { await kill(entry) }
             }
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: { entry in
-            Text("确定要强制结束「\(entry.processName)」(PID \(entry.pid)) 吗？该操作不可撤销。")
+            Text(L("确定要强制结束「%@」(PID %d) 吗？该操作不可撤销。", entry.processName, entry.pid))
         }
-        .alert("无法结束进程", isPresented: killFailedBinding) {
-            Button("好", role: .cancel) {}
+        .alert(L("无法结束进程"), isPresented: killFailedBinding) {
+            Button(L("好"), role: .cancel) {}
         } message: {
             Text(killFailedMessage ?? "")
         }
@@ -69,10 +70,10 @@ struct PortUsagePanelView: View {
 
     private var topBar: some View {
         HStack(spacing: 12) {
-            Text("端口使用")
+            Text(L("端口使用"))
                 .font(.system(size: 16, weight: .semibold))
 
-            Text("共 \(viewModel.entries.count) 个监听端口")
+            Text(L("共 %d 个监听端口", viewModel.entries.count))
                 .font(.system(size: 12))
                 .monospacedDigit()
                 .foregroundStyle(.secondary)
@@ -101,7 +102,7 @@ struct PortUsagePanelView: View {
             Image(systemName: "magnifyingglass")
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
-            TextField("按端口 / 进程搜索", text: $searchText)
+            TextField(L("按端口 / 进程搜索"), text: $searchText)
                 .textFieldStyle(.plain)
                 .font(.system(size: 12))
                 .autocorrectionDisabled()
@@ -159,7 +160,7 @@ struct PortUsagePanelView: View {
         VStack(spacing: 12) {
             Spacer()
             ProgressView()
-            Text("正在扫描监听端口…")
+            Text(L("正在扫描监听端口…"))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
             Spacer()
@@ -173,9 +174,9 @@ struct PortUsagePanelView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 32))
                 .foregroundStyle(.secondary)
-            Text("扫描失败")
+            Text(L("扫描失败"))
                 .font(.system(size: 15, weight: .semibold))
-            Text(message)
+            Text(L(message))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -183,7 +184,7 @@ struct PortUsagePanelView: View {
             Button {
                 Task { await viewModel.refresh() }
             } label: {
-                Text("重试")
+                Text(L("重试"))
                     .font(.system(size: 13, weight: .medium))
                     .padding(.horizontal, 20)
                     .padding(.vertical, 8)
@@ -203,7 +204,7 @@ struct PortUsagePanelView: View {
             if viewModel.isScanning {
                 ProgressView()
             } else {
-                Text(searchText.isEmpty ? "未发现监听端口" : "没有匹配的端口")
+                Text(L(searchText.isEmpty ? "未发现监听端口" : "没有匹配的端口"))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
             }
@@ -282,7 +283,7 @@ struct PortUsagePanelView: View {
     private func kill(_ entry: PortUsageEntry) async {
         let ok = await viewModel.kill(pid: entry.pid)
         if !ok {
-            killFailedMessage = "结束 \(entry.processName) (PID \(entry.pid)) 失败，可能没有权限或进程已退出。"
+            killFailedMessage = L("结束 %@ (PID %d) 失败，可能没有权限或进程已退出。", entry.processName, entry.pid)
         }
     }
 }

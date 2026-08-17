@@ -5,12 +5,31 @@
 //  Lists imported SSH private keys and offers two import paths:
 //  picking a key file, or pasting the key text directly.
 //  Key material itself lives in Keychain (see SSHKeyStore).
+//  `SSHKeyListContent` is the navigation-free list (embedded directly in
+//  Settings); `SSHKeyManagementView` wraps it for push-style entry points.
 //
 
 import SwiftUI
 import UniformTypeIdentifiers
 
+/// Push 入口用的整页包装（连接编辑页等处仍在用）。
 struct SSHKeyManagementView: View {
+    @StateObject private var l10n = LocalizationManager.shared
+
+    var body: some View {
+        ScrollView {
+            SSHKeyListContent()
+                .padding(16)
+        }
+        .navigationTitle(L("密钥管理"))
+        .navigationBarTitleDisplayMode(.inline)
+    }
+}
+
+/// 密钥列表 + 导入/删除的内容视图，无导航壳，可直接内嵌到设置页等
+/// ScrollView 容器里。删除用行内垃圾桶按钮（不依赖 List 的 swipeActions）。
+struct SSHKeyListContent: View {
+    @StateObject private var l10n = LocalizationManager.shared
     @StateObject private var keyStore = SSHKeyStore.shared
 
     @State private var showFilePicker = false
@@ -27,34 +46,17 @@ struct SSHKeyManagementView: View {
     }
 
     var body: some View {
-        Group {
-            if keyStore.keys.isEmpty {
-                ContentUnavailableView {
-                    Label("没有 SSH 密钥", systemImage: "key")
-                } description: {
-                    Text("点击右上角导入密钥文件，或直接粘贴密钥文本")
-                }
-            } else {
-                keyList
+        VStack(alignment: .leading, spacing: 12) {
+            HStack {
+                Spacer()
+                importMenu
             }
-        }
-        .navigationTitle("密钥管理")
-        .navigationBarTitleDisplayMode(.inline)
-        .toolbar {
-            ToolbarItem(placement: .topBarTrailing) {
-                Menu {
-                    Button {
-                        showFilePicker = true
-                    } label: {
-                        Label("从文件导入", systemImage: "doc")
-                    }
-                    Button {
-                        showPasteSheet = true
-                    } label: {
-                        Label("粘贴文本", systemImage: "doc.on.clipboard")
-                    }
-                } label: {
-                    Image(systemName: "plus")
+
+            if keyStore.keys.isEmpty {
+                emptyState
+            } else {
+                ForEach(keyStore.keys) { key in
+                    keyRow(key)
                 }
             }
         }
@@ -70,52 +72,81 @@ struct SSHKeyManagementView: View {
                 importError = error.localizedDescription
             }
         }
-        .alert("命名密钥", isPresented: namingAlertBinding, presenting: pendingFileImport) { pending in
-            TextField("密钥名称", text: $importName)
-            Button("导入") {
+        .alert(L("命名密钥"), isPresented: namingAlertBinding, presenting: pendingFileImport) { pending in
+            TextField(L("密钥名称"), text: $importName)
+            Button(L("导入")) {
                 importKey(name: importName, text: pending.text)
             }
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: { _ in
-            Text("为这把密钥起一个便于识别的名称")
+            Text(L("为这把密钥起一个便于识别的名称"))
         }
-        .alert("导入失败", isPresented: errorAlertBinding) {
-            Button("好", role: .cancel) {}
+        .alert(L("导入失败"), isPresented: errorAlertBinding) {
+            Button(L("好"), role: .cancel) {}
         } message: {
-            Text(importError ?? "")
+            Text(L(importError ?? ""))
         }
     }
 
-    private var keyList: some View {
-        List {
-            ForEach(keyStore.keys) { key in
-                HStack(spacing: 12) {
-                    Image(systemName: "key.fill")
-                        .font(.system(size: 18))
-                        .foregroundStyle(.teal)
-                        .frame(width: 30)
-                    VStack(alignment: .leading, spacing: 3) {
-                        Text(key.name)
-                            .font(.system(size: 16, weight: .semibold))
-                        Text(key.keyType)
-                            .font(.system(size: 12, design: .monospaced))
-                            .foregroundStyle(.secondary)
-                        Text(key.createdAt.formatted(date: .numeric, time: .shortened))
-                            .font(.system(size: 12))
-                            .foregroundStyle(.secondary)
-                    }
-                }
-                .padding(.vertical, 4)
-                .swipeActions(edge: .trailing) {
-                    Button(role: .destructive) {
-                        keyStore.delete(key)
-                    } label: {
-                        Label("删除", systemImage: "trash")
-                    }
-                }
+    private var importMenu: some View {
+        Menu {
+            Button {
+                showFilePicker = true
+            } label: {
+                Label(L("从文件导入"), systemImage: "doc")
             }
+            Button {
+                showPasteSheet = true
+            } label: {
+                Label(L("粘贴文本"), systemImage: "doc.on.clipboard")
+            }
+        } label: {
+            Image(systemName: "plus.circle.fill")
+                .font(.system(size: 22))
+                .foregroundStyle(.teal)
         }
-        .listStyle(.insetGrouped)
+    }
+
+    private var emptyState: some View {
+        VStack(alignment: .leading, spacing: 6) {
+            Text(L("没有 SSH 密钥"))
+                .font(.subheadline)
+            Text(L("点击 + 导入密钥文件，或直接粘贴密钥文本"))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(16)
+        .background(Color(white: 0.15), in: RoundedRectangle(cornerRadius: 8))
+    }
+
+    private func keyRow(_ key: SSHKeyMeta) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: "key.fill")
+                .font(.system(size: 18))
+                .foregroundStyle(.teal)
+                .frame(width: 30)
+            VStack(alignment: .leading, spacing: 3) {
+                Text(key.name)
+                    .font(.system(size: 16, weight: .semibold))
+                Text(key.keyType)
+                    .font(.system(size: 12, design: .monospaced))
+                    .foregroundStyle(.secondary)
+                Text(key.createdAt.formatted(date: .numeric, time: .shortened))
+                    .font(.system(size: 12))
+                    .foregroundStyle(.secondary)
+            }
+            Spacer()
+            Button(role: .destructive) {
+                keyStore.delete(key)
+            } label: {
+                Image(systemName: "trash")
+                    .foregroundStyle(.red)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(12)
+        .background(Color(white: 0.15), in: RoundedRectangle(cornerRadius: 8))
     }
 
     private var namingAlertBinding: Binding<Bool> {
@@ -212,6 +243,7 @@ private struct KeyFilePicker: UIViewControllerRepresentable {
 
 /// Sheet for pasting private key text directly, with a name field.
 private struct PasteKeySheet: View {
+    @StateObject private var l10n = LocalizationManager.shared
     @Environment(\.dismiss) private var dismiss
 
     /// Attempts the import; must throw on failure.
@@ -224,8 +256,8 @@ private struct PasteKeySheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("名称") {
-                    TextField("密钥名称", text: $name)
+                Section(L("名称")) {
+                    TextField(L("密钥名称"), text: $name)
                 }
                 Section {
                     TextEditor(text: $text)
@@ -234,19 +266,19 @@ private struct PasteKeySheet: View {
                         .textInputAutocapitalization(.never)
                         .autocorrectionDisabled()
                 } header: {
-                    Text("密钥文本")
+                    Text(L("密钥文本"))
                 } footer: {
-                    Text("粘贴以 -----BEGIN 开头的私钥内容，支持未加密的 OpenSSH 和 PEM 格式。")
+                    Text(L("粘贴以 -----BEGIN 开头的私钥内容，支持未加密的 OpenSSH 和 PEM 格式。"))
                 }
             }
-            .navigationTitle("粘贴密钥")
+            .navigationTitle(L("粘贴密钥"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
-                    Button("取消") { dismiss() }
+                    Button(L("取消")) { dismiss() }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("导入") { importPasted() }
+                    Button(L("导入")) { importPasted() }
                         .disabled(text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                 }
             }

@@ -56,6 +56,7 @@ final class TerminalBox: ObservableObject {
 }
 
 struct TerminalSessionView: View {
+    @StateObject private var l10n = LocalizationManager.shared
     @ObservedObject var tab: TerminalTab
 
     private var config: SSHConnectionConfig { tab.config }
@@ -106,7 +107,7 @@ struct TerminalSessionView: View {
         case .idle, .connecting:
             VStack(spacing: 12) {
                 ProgressView()
-                Text("正在连接 \(config.host):\(config.port)…")
+                Text(L("正在连接 %@:%d…", config.host, config.port))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
             }
@@ -114,9 +115,9 @@ struct TerminalSessionView: View {
 
         case .failed(let message):
             ContentUnavailableView {
-                Label("连接失败", systemImage: "exclamationmark.triangle")
+                Label(L("连接失败"), systemImage: "exclamationmark.triangle")
             } description: {
-                Text(message)
+                Text(L(message))
             }
 
         case .connected, .closed:
@@ -167,6 +168,8 @@ struct TerminalSessionView: View {
 }
 
 private struct FunctionButton: View {
+    @StateObject private var l10n = LocalizationManager.shared
+
     let function: SessionFunction
     let isSelected: Bool
     let action: () -> Void
@@ -176,7 +179,7 @@ private struct FunctionButton: View {
             VStack(spacing: 4) {
                 Image(systemName: function.icon)
                     .font(.system(size: 16, weight: .medium))
-                Text(function.title)
+                Text(L(function.title))
                     .font(.system(size: 10, weight: .medium))
             }
             .frame(width: 56, height: 44)

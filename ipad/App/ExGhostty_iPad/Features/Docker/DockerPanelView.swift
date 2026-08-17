@@ -39,6 +39,7 @@ private enum DockerTab: String, CaseIterable, Identifiable {
 
 /// Docker 管理功能面板。
 struct DockerPanelView: View {
+    @StateObject private var l10n = LocalizationManager.shared
     @StateObject private var viewModel: DockerViewModel
     @State private var state: DockerPanelState = .checking
     @State private var tab: DockerTab = .containers
@@ -56,7 +57,7 @@ struct DockerPanelView: View {
             case .checking:
                 VStack(spacing: 12) {
                     ProgressView()
-                    Text("正在检测 Docker 环境…")
+                    Text(L("正在检测 Docker 环境…"))
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
@@ -84,34 +85,34 @@ struct DockerPanelView: View {
             DockerLogsView(session: viewModel.session, container: container)
         }
         .alert(
-            "删除容器",
+            L("删除容器"),
             isPresented: removalBinding(for: $containerPendingRemoval),
             presenting: containerPendingRemoval
         ) { container in
-            Button("删除", role: .destructive) {
+            Button(L("删除"), role: .destructive) {
                 Task {
                     await viewModel.performContainerAction(.remove, id: container.id)
                     await viewModel.refreshContainers()
                 }
             }
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: { container in
-            Text("确定要删除容器 \"\(container.names)\" 吗？此操作不可恢复。")
+            Text(L("确定要删除容器 \"%@\" 吗？此操作不可恢复。", container.names))
         }
         .alert(
-            "删除镜像",
+            L("删除镜像"),
             isPresented: removalBinding(for: $imagePendingRemoval),
             presenting: imagePendingRemoval
         ) { image in
-            Button("删除", role: .destructive) {
+            Button(L("删除"), role: .destructive) {
                 Task {
                     await viewModel.removeImage(reference: image.reference)
                     await viewModel.refreshImages()
                 }
             }
-            Button("取消", role: .cancel) {}
+            Button(L("取消"), role: .cancel) {}
         } message: { image in
-            Text("确定要删除镜像 \"\(image.repository):\(image.tag)\" 吗？")
+            Text(L("确定要删除镜像 \"%@:%@\" 吗？", image.repository, image.tag))
         }
     }
 
@@ -151,13 +152,13 @@ struct DockerPanelView: View {
             Image(systemName: "shippingbox")
                 .font(.system(size: 36))
                 .foregroundStyle(.secondary)
-            Text("未安装 Docker")
+            Text(L("未安装 Docker"))
                 .font(.system(size: 14, weight: .medium))
-            Text("Docker 管理需要远程主机已安装 docker CLI")
+            Text(L("Docker 管理需要远程主机已安装 docker CLI"))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
-            Button("重新检测") {
+            Button(L("重新检测")) {
                 state = .checking
                 startService()
             }
@@ -177,9 +178,9 @@ struct DockerPanelView: View {
             Image(systemName: "server.rack")
                 .font(.system(size: 36))
                 .foregroundStyle(.secondary)
-            Text("Docker 服务未运行")
+            Text(L("Docker 服务未运行"))
                 .font(.system(size: 14, weight: .medium))
-            Text("无法连接 Docker daemon，请先在远程主机上启动服务：")
+            Text(L("无法连接 Docker daemon，请先在远程主机上启动服务："))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -190,7 +191,7 @@ struct DockerPanelView: View {
                 .padding(.vertical, 6)
                 .background(Color(white: 0.13))
                 .cornerRadius(6)
-            Button("重试") {
+            Button(L("重试")) {
                 state = .checking
                 startService()
             }
@@ -213,9 +214,9 @@ struct DockerPanelView: View {
             Image(systemName: "lock.shield")
                 .font(.system(size: 36))
                 .foregroundStyle(.secondary)
-            Text("Docker 权限不足")
+            Text(L("Docker 权限不足"))
                 .font(.system(size: 14, weight: .medium))
-            Text("当前用户无法访问 Docker daemon。建议把用户加入 docker 用户组（优于使用 sudo）：")
+            Text(L("当前用户无法访问 Docker daemon。建议把用户加入 docker 用户组（优于使用 sudo）："))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -226,15 +227,15 @@ struct DockerPanelView: View {
                 .padding(.vertical, 6)
                 .background(Color(white: 0.13))
                 .cornerRadius(6)
-            Text("执行后需重新登录（或重新连接）才能生效。")
+            Text(L("执行后需重新登录（或重新连接）才能生效。"))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
             HStack(spacing: 12) {
-                Button("复制") {
+                Button(L("复制")) {
                     UIPasteboard.general.string = command
                 }
-                Button("重试") {
+                Button(L("重试")) {
                     state = .checking
                     startService()
                 }
@@ -282,7 +283,7 @@ struct DockerPanelView: View {
         HStack(spacing: 12) {
             Picker("", selection: $tab) {
                 ForEach(DockerTab.allCases) { item in
-                    Text(item.title).tag(item)
+                    Text(L(item.title)).tag(item)
                 }
             }
             .pickerStyle(.segmented)
@@ -325,7 +326,7 @@ struct DockerPanelView: View {
             VStack(spacing: 12) {
                 Spacer()
                 ProgressView()
-                Text("正在加载…")
+                Text(L("正在加载…"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -333,7 +334,7 @@ struct DockerPanelView: View {
         } else if currentListIsEmpty {
             VStack {
                 Spacer()
-                Text(emptyText)
+                Text(L(emptyText))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -397,12 +398,12 @@ struct DockerPanelView: View {
                 .font(.system(size: 36))
                 .foregroundStyle(.secondary)
             if let issue = viewModel.issue {
-                Text(issueMessage(issue))
+                Text(L(issueMessage(issue)))
                     .font(.system(size: 13))
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
             }
-            Button("重试") {
+            Button(L("重试")) {
                 refreshCurrentTab()
             }
             .buttonStyle(.borderedProminent)
@@ -419,7 +420,7 @@ struct DockerPanelView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.system(size: 12))
                 .foregroundStyle(.orange)
-            Text(message)
+            Text(L(message))
                 .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .lineLimit(3)
@@ -502,13 +503,13 @@ struct DockerPanelView: View {
             Button {
                 logsContainer = container
             } label: {
-                Label("查看日志", systemImage: "doc.text.magnifyingglass")
+                Label(L("查看日志"), systemImage: "doc.text.magnifyingglass")
             }
             Divider()
             Button(role: .destructive) {
                 containerPendingRemoval = container
             } label: {
-                Label("删除", systemImage: "trash")
+                Label(L("删除"), systemImage: "trash")
             }
         }
     }
@@ -550,7 +551,7 @@ struct DockerPanelView: View {
             Button(role: .destructive) {
                 imagePendingRemoval = image
             } label: {
-                Label("删除", systemImage: "trash")
+                Label(L("删除"), systemImage: "trash")
             }
         }
     }
@@ -631,6 +632,7 @@ private struct DockerLogsView: View {
     let session: SSHSession
     let container: DockerContainer
 
+    @StateObject private var l10n = LocalizationManager.shared
     @StateObject private var model = DockerLogsViewModel()
     @Environment(\.dismiss) private var dismiss
 
@@ -638,7 +640,7 @@ private struct DockerLogsView: View {
         NavigationStack {
             ScrollViewReader { proxy in
                 ScrollView {
-                    Text(model.text.isEmpty ? "等待日志输出…" : model.text)
+                    Text(model.text.isEmpty ? L("等待日志输出…") : model.text)
                         .font(.system(size: 11, design: .monospaced))
                         .foregroundStyle(model.text.isEmpty ? .secondary : .primary)
                         .frame(maxWidth: .infinity, alignment: .leading)
@@ -655,12 +657,12 @@ private struct DockerLogsView: View {
                 }
             }
             .background(Color(white: 0.07))
-            .navigationTitle("日志 - \(container.names)")
+            .navigationTitle(L("日志 - %@", container.names))
             .navigationBarTitleDisplayMode(.inline)
             .toolbarColorScheme(.dark, for: .navigationBar)
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button("关闭") {
+                    Button(L("关闭")) {
                         dismiss()
                     }
                 }

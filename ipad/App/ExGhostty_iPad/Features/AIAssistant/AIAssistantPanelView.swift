@@ -11,6 +11,7 @@ import SwiftUI
 
 struct AIAssistantPanelView: View {
 
+    @StateObject private var l10n = LocalizationManager.shared
     @StateObject private var viewModel: AIAssistantViewModel
     @ObservedObject private var settings = SettingsStore.shared
     @ObservedObject private var historyStore = AIAssistantHistoryStore.shared
@@ -44,10 +45,10 @@ struct AIAssistantPanelView: View {
                 .font(.system(size: 40))
                 .foregroundStyle(Color.teal)
 
-            Text("AI 助手未配置")
+            Text(L("AI 助手未配置"))
                 .font(.headline)
 
-            Text("请先在设置页填写 AI 接口地址、API Key 和模型名称，\n然后回到此面板开始对话。")
+            Text(L("请先在设置页填写 AI 接口地址、API Key 和模型名称，\n然后回到此面板开始对话。"))
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -79,7 +80,7 @@ struct AIAssistantPanelView: View {
             Button {
                 viewModel.newConversation()
             } label: {
-                Label("新对话", systemImage: "square.and.pencil")
+                Label(L("新对话"), systemImage: "square.and.pencil")
                     .font(.system(size: 13, weight: .medium))
             }
             .foregroundStyle(Color.teal)
@@ -87,7 +88,7 @@ struct AIAssistantPanelView: View {
             Button {
                 viewModel.showHistory.toggle()
             } label: {
-                Label("历史", systemImage: "clock")
+                Label(L("历史"), systemImage: "clock")
                     .font(.system(size: 13, weight: .medium))
             }
             .foregroundStyle(viewModel.showHistory ? Color.teal : Color.secondary)
@@ -127,7 +128,7 @@ struct AIAssistantPanelView: View {
                         HStack(spacing: 8) {
                             ProgressView()
                                 .controlSize(.small)
-                            Text(status)
+                            Text(L(status))
                                 .font(.system(size: 12))
                                 .foregroundStyle(.secondary)
                             Spacer()
@@ -163,7 +164,7 @@ struct AIAssistantPanelView: View {
             Image(systemName: "bubble.left.and.bubble.right")
                 .font(.system(size: 28))
                 .foregroundStyle(.secondary)
-            Text("向 AI 提问关于这台服务器的问题\n回答中的命令可以直接发送到终端执行")
+            Text(L("向 AI 提问关于这台服务器的问题\n回答中的命令可以直接发送到终端执行"))
                 .font(.system(size: 13))
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
@@ -177,16 +178,16 @@ struct AIAssistantPanelView: View {
             HStack(spacing: 8) {
                 Image(systemName: "exclamationmark.triangle.fill")
                     .foregroundStyle(.red)
-                Text("请求失败")
+                Text(L("请求失败"))
                     .font(.system(size: 13, weight: .semibold))
             }
-            Text(message)
+            Text(L(message))
                 .font(.system(size: 12))
                 .foregroundStyle(.secondary)
             Button {
                 viewModel.retry()
             } label: {
-                Label("重试", systemImage: "arrow.clockwise")
+                Label(L("重试"), systemImage: "arrow.clockwise")
                     .font(.system(size: 13, weight: .medium))
                     .padding(.horizontal, 14)
                     .padding(.vertical, 6)
@@ -218,7 +219,7 @@ struct AIAssistantPanelView: View {
                 .overlay(Color(white: 0.25))
 
             HStack(alignment: .bottom, spacing: 10) {
-                TextField("输入你的问题…", text: $viewModel.inputText, axis: .vertical)
+                TextField(L("输入你的问题…"), text: $viewModel.inputText, axis: .vertical)
                     .lineLimit(1...6)
                     .font(.system(size: 14))
                     .textFieldStyle(.plain)
@@ -270,7 +271,7 @@ struct AIAssistantPanelView: View {
                     Image(systemName: "clock")
                         .font(.system(size: 28))
                         .foregroundStyle(.secondary)
-                    Text("暂无历史对话")
+                    Text(L("暂无历史对话"))
                         .font(.system(size: 13))
                         .foregroundStyle(.secondary)
                 }
@@ -286,7 +287,7 @@ struct AIAssistantPanelView: View {
                                     .foregroundStyle(Color.teal)
 
                                 VStack(alignment: .leading, spacing: 3) {
-                                    Text(conversation.displayTitle)
+                                    Text(L(conversation.displayTitle))
                                         .font(.system(size: 14, weight: .medium))
                                         .foregroundStyle(.primary)
                                         .lineLimit(1)
@@ -297,7 +298,7 @@ struct AIAssistantPanelView: View {
 
                                 Spacer()
 
-                                Text("\(conversation.messages.count) 条")
+                                Text(L("%d 条", conversation.messages.count))
                                     .font(.system(size: 11, design: .monospaced))
                                     .foregroundStyle(.secondary)
                             }
@@ -309,7 +310,7 @@ struct AIAssistantPanelView: View {
                             Button(role: .destructive) {
                                 viewModel.deleteConversation(id: conversation.id)
                             } label: {
-                                Label("删除", systemImage: "trash")
+                                Label(L("删除"), systemImage: "trash")
                             }
                         }
                         .listRowBackground(Color(white: 0.11))
@@ -332,6 +333,8 @@ struct AIAssistantPanelView: View {
 // MARK: - 消息气泡
 
 private struct AIMessageBubbleView: View {
+    @StateObject private var l10n = LocalizationManager.shared
+
     let message: AIMessage
     var onSendToTerminal: (String) -> Void
     var onCopy: (String) -> Void
@@ -416,6 +419,8 @@ private struct AIMessageBubbleView: View {
 // MARK: - 代码块
 
 private struct AICodeBlockView: View {
+    @StateObject private var l10n = LocalizationManager.shared
+
     let language: String
     let code: String
     var onSendToTerminal: () -> Void
@@ -430,7 +435,7 @@ private struct AICodeBlockView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
-                Text(language.isEmpty ? "代码" : language.capitalized)
+                Text(language.isEmpty ? L("代码") : language.capitalized)
                     .font(.system(size: 10, weight: .semibold, design: .monospaced))
                     .foregroundStyle(.secondary)
                 Spacer()
@@ -450,7 +455,7 @@ private struct AICodeBlockView: View {
                     Button {
                         onSendToTerminal()
                     } label: {
-                        Label("发送到终端", systemImage: "terminal")
+                        Label(L("发送到终端"), systemImage: "terminal")
                             .font(.system(size: 11, weight: .medium))
                             .padding(.horizontal, 10)
                             .padding(.vertical, 5)
@@ -468,7 +473,7 @@ private struct AICodeBlockView: View {
                         copied = false
                     }
                 } label: {
-                    Label(copied ? "已复制" : "复制",
+                    Label(copied ? L("已复制") : L("复制"),
                           systemImage: copied ? "checkmark" : "doc.on.doc")
                         .font(.system(size: 11, weight: .medium))
                         .padding(.horizontal, 10)

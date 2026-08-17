@@ -91,6 +91,8 @@ private struct TabButton: View {
 
 /// Shown on the right side when no terminal tab is open.
 private struct IntroView: View {
+    @StateObject private var l10n = LocalizationManager.shared
+
     private let features: [(icon: String, title: String)] = [
         ("terminal", "SSH 终端"),
         ("folder", "SFTP 文件管理"),
@@ -111,7 +113,7 @@ private struct IntroView: View {
                     .font(.system(size: 28, weight: .bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
-                Text("功能完整的 SSH 客户端\n支持密钥认证、跳板机、连接分组与 iCloud 同步")
+                Text(L("功能完整的 SSH 客户端\n支持密钥认证、跳板机、连接分组与 iCloud 同步"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)
@@ -120,14 +122,14 @@ private struct IntroView: View {
                     spacing: 12
                 ) {
                     ForEach(features, id: \.title) { feature in
-                        Label(feature.title, systemImage: feature.icon)
+                        Label(L(feature.title), systemImage: feature.icon)
                             .font(.system(size: 13))
                             .foregroundStyle(.secondary)
                     }
                 }
                 .frame(maxWidth: 340)
                 .padding(.top, 8)
-                Text("从左侧栏选择或新增一个 SSH 连接开始")
+                Text(L("从左侧栏选择或新增一个 SSH 连接开始"))
                     .font(.caption)
                     .foregroundStyle(.tertiary)
                     .padding(.top, 12)
