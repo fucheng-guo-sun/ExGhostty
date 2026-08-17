@@ -190,7 +190,8 @@ final class SFTPPanelViewModel: ObservableObject {
         let previouslySelectedNames = Set(self.items.filter { selectedItems.contains($0.id) }.map { $0.name })
         Task {
             do {
-                let list = try await SFTPService.shared.listDirectory(
+                // 目录列举与上一级可写检查并发执行（各需一次远程往返，串行会加倍等待）。
+                async let listFetch = SFTPService.shared.listDirectory(
                     connection: connection,
                     path: currentPath,
                     showHidden: showHidden
@@ -202,6 +203,7 @@ final class SFTPPanelViewModel: ObservableObject {
                 } else {
                     writable = false
                 }
+                let list = try await listFetch
                 await MainActor.run {
                     let sorted = list.sorted {
                         if $0.isDirectory != $1.isDirectory {

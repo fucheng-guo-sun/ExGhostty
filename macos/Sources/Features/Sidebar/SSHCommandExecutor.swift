@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 // MARK: - 错误
@@ -54,7 +55,7 @@ actor SSHCommandExecutor {
     ) async throws -> String {
         let backend = try backend(for: connection)
         let command = effectiveCommand(remoteCommand, for: connection)
-        let args = connection.sshBaseArgs.split(separator: " ").map(String.init) + [command]
+        let args = await commandArguments(command: command, connection: connection)
         let invocation = try backend.sshInvocation(args: args)
         return try await runCommand(invocation)
     }
@@ -66,7 +67,7 @@ actor SSHCommandExecutor {
         connection: SSHConnection
     ) async throws -> String {
         let backend = try backend(for: connection)
-        let args = connection.sshBaseArgs.split(separator: " ").map(String.init) + [remoteCommand]
+        let args = await commandArguments(command: remoteCommand, connection: connection)
         let invocation = try backend.sshInvocation(args: args)
         return try await runCommand(invocation)
     }
@@ -80,13 +81,25 @@ actor SSHCommandExecutor {
     ) async throws -> SSHStreamingInvocation {
         let backend = try backend(for: connection)
         let command = effectiveCommand(remoteCommand, for: connection)
-        let args = connection.sshBaseArgs.split(separator: " ").map(String.init) + [command]
+        let args = await commandArguments(command: command, connection: connection)
         let invocation = try backend.sshInvocation(args: args)
         return SSHStreamingInvocation(
             executableURL: invocation.executableURL,
             arguments: invocation.arguments,
             environment: invocation.environment
         )
+    }
+
+    /// 组装远程命令的 ssh 参数：优先挂上持久控制通道的 socket 复用已认证连接，
+    /// 通道建立失败时退回直连（每次执行一次完整握手，保持原有行为）。
+    private func commandArguments(command: String, connection: SSHConnection) async -> [String] {
+        var args: [String] = []
+        if let socket = try? await ensureControlMaster(connection: connection) {
+            args += ["-S", socket]
+        }
+        args += connection.sshBaseArgs.split(separator: " ").map(String.init)
+        args.append(command)
+        return args
     }
 
     /// 若连接配置启用了「用户身份」，则把命令包装为以目标用户身份执行。
@@ -97,17 +110,54 @@ actor SSHCommandExecutor {
         return SSHIdentity.wrap(remoteCommand: remoteCommand, as: identity, loginUsername: connection.username)
     }
 
-    /// 为指定连接建立一个 SSH ControlMaster 通道，并在通道可用期间执行 `operation`。
+    /// 确保指定连接的 SSH ControlMaster 通道可用，并在通道上执行 `operation`。
     ///
-    /// `operation` 接收控制 socket 路径，可用于 rsync 等需要共享 SSH 连接的场景。
+    /// 通道是持久的（跨调用复用），`operation` 接收控制 socket 路径，
+    /// 可用于 rsync 等需要共享 SSH 连接的场景。
     func withControlChannel<T>(
         connection: SSHConnection,
         operation: (String) async throws -> T
     ) async throws -> T {
-        let backend = try backend(for: connection)
-        let socket = Self.controlSocketPath(for: connection)
-        Self.cleanupSocket(at: socket)
+        let socket = try await ensureControlMaster(connection: connection)
+        return try await operation(socket)
+    }
 
+    // MARK: - 持久控制通道
+
+    /// 正在建立中的控制通道（按连接去重，并发调用共享同一次建立过程）。
+    private var pendingControlMasters: [UUID: Task<String, Error>] = [:]
+
+    /// 确保指定连接的持久 ControlMaster 已就绪，返回控制 socket 路径。
+    ///
+    /// 每条连接只做一次完整的 TCP + SSH 握手与认证，之后所有远程命令通过
+    /// `-S socket` 复用该连接（此前每次执行都重新握手，是 SFTP 目录切换慢的主因）。
+    /// master 意外死亡（网络断开、远端重启）时按需重建；
+    /// App 退出时由 `closeAllControlChannels` 统一回收。
+    private func ensureControlMaster(connection: SSHConnection) async throws -> String {
+        let socket = Self.controlSocketPath(for: connection)
+        if Self.controlMasterIsAlive(socket: socket, connection: connection) {
+            return socket
+        }
+        if let pending = pendingControlMasters[connection.id] {
+            return try await pending.value
+        }
+        let task = Task {
+            try await self.createControlMaster(connection: connection, socket: socket)
+        }
+        pendingControlMasters[connection.id] = task
+        do {
+            let result = try await task.value
+            pendingControlMasters[connection.id] = nil
+            return result
+        } catch {
+            pendingControlMasters[connection.id] = nil
+            throw error
+        }
+    }
+
+    private func createControlMaster(connection: SSHConnection, socket: String) async throws -> String {
+        let backend = try backend(for: connection)
+        Self.cleanupSocket(at: socket)
         var args = connection.sshBaseArgs.split(separator: " ").map(String.init)
         args.insert(contentsOf: ["-M", "-S", socket, "-f", "-N"], at: 0)
         let invocation = try backend.controlMasterInvocation(args: args)
@@ -119,6 +169,10 @@ actor SSHCommandExecutor {
                 environment: invocation.environment
             )
         } catch {
+            // 并发建立时对方可能已抢先完成；通道可用即视为成功。
+            if Self.controlMasterIsAlive(socket: socket, connection: connection) {
+                return socket
+            }
             Self.cleanupSocket(at: socket)
             throw SSHCommandError.controlChannelFailed(error.localizedDescription)
         }
@@ -127,13 +181,25 @@ actor SSHCommandExecutor {
             Self.cleanupSocket(at: socket)
             throw SSHCommandError.controlChannelFailed("SSH control channel not created".localized)
         }
+        return socket
+    }
 
-        defer {
-            Self.closeControlMaster(socket: socket, connection: connection)
-            Self.cleanupSocket(at: socket)
+    /// 通过控制 socket 查询 master 是否存活（纯本地通信，毫秒级）。
+    private static func controlMasterIsAlive(socket: String, connection: SSHConnection) -> Bool {
+        guard FileManager.default.fileExists(atPath: socket) else { return false }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
+        process.arguments = ["-S", socket, "-O", "check"]
+            + connection.sshBaseArgs.split(separator: " ").map(String.init)
+        process.standardOutput = FileHandle.nullDevice
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return false
         }
-
-        return try await operation(socket)
+        process.waitUntilExit()
+        return process.terminationStatus == 0
     }
 
     // MARK: - 内部辅助
@@ -161,7 +227,22 @@ actor SSHCommandExecutor {
     }
 
     private static func controlSocketPath(for connection: SSHConnection) -> String {
-        "/tmp/ghostty_ssh_control_\(connection.id.uuidString).sock"
+        // 指纹涵盖目标与认证字段：连接配置被修改（换主机/端口/用户/密码等）后
+        // 不复用旧 master，避免命令被发往修改前的主机。
+        let basis = [
+            connection.host,
+            String(connection.port),
+            connection.username,
+            connection.authMode.rawValue,
+            connection.keyPath ?? "",
+            connection.jumpHostID?.uuidString ?? "",
+            connection.password,
+        ].joined(separator: "|")
+        let fingerprint = SHA256.hash(data: Data(basis.utf8))
+            .prefix(8)
+            .map { String(format: "%02x", $0) }
+            .joined()
+        return "/tmp/ghostty_ssh_control_\(connection.id.uuidString)_\(fingerprint).sock"
     }
 
     private static func cleanupSocket(at path: String) {
@@ -170,18 +251,11 @@ actor SSHCommandExecutor {
         }
     }
 
-    private static func closeControlMaster(socket: String, connection: SSHConnection) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/ssh")
-        process.arguments = ["-S", socket, "-O", "exit"] + connection.sshBaseArgs.split(separator: " ").map(String.init)
-        try? process.run()
-    }
-
     /// 关闭所有 SSH ControlMaster 通道并清理 socket 文件。
     ///
     /// 供程序退出时同步调用。ControlMaster 以 `-f` 后台运行，App 退出时
-    /// `withControlChannel` 的 defer 不会执行，必须在这里兜底清理；
-    /// 同时清扫历史运行残留在 /tmp 下的 socket（对应已失控的 ssh 进程）。
+    /// 必须在这里兜底清理；同时清扫历史运行残留在 /tmp 下的 socket
+    /// （对应已失控的 ssh 进程）。
     static func closeAllControlChannels() {
         guard let items = try? FileManager.default.contentsOfDirectory(atPath: "/tmp") else { return }
         for item in items where item.hasPrefix("ghostty_ssh_control_") && item.hasSuffix(".sock") {
