@@ -113,7 +113,7 @@ private struct IntroView: View {
                     .font(.system(size: 28, weight: .bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)
-                Text(L("功能完整的 SSH 客户端\n支持密钥认证、跳板机、连接分组与 iCloud 同步"))
+                Text(L("功能完整的 SSH 客户端\n支持密钥认证、跳板机与连接分组"))
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
                     .multilineTextAlignment(.center)

@@ -3,8 +3,9 @@
 //  ExGhostty_iPad
 //
 //  UIKit container hosting a full-size SshTerminalView with keyboard handling.
-//  Also applies the terminal font settings (SettingsStore) and re-applies
-//  them live when they change.
+//  Applies the terminal font / cursor / theme settings (SettingsStore) and
+//  re-applies them live when they change — each sink replays the current
+//  value immediately, so no separate initial-apply step exists.
 //
 
 import UIKit
@@ -16,17 +17,15 @@ final class TerminalHostViewController: UIViewController {
     private var session: SSHSession?
     private var fontCancellable: AnyCancellable?
     private var cursorCancellable: AnyCancellable?
+    private var themeCancellable: AnyCancellable?
 
     var hostedTerminalView: SshTerminalView { terminalView }
 
     override func viewDidLoad() {
         super.viewDidLoad()
 
-        view.backgroundColor = .black
         view.isOpaque = true
         terminalView.isOpaque = true
-        terminalView.backgroundColor = .black
-        terminalView.nativeBackgroundColor = .black
         terminalView.contentInsetAdjustmentBehavior = .never
         terminalView.translatesAutoresizingMaskIntoConstraints = false
         view.addSubview(terminalView)
@@ -69,6 +68,13 @@ final class TerminalHostViewController: UIViewController {
                 default: cursorStyle = .steadyBlock
                 }
                 self.terminalView.getTerminal().setCursorStyle(cursorStyle)
+            }
+        themeCancellable = settings.$themeName
+            .receive(on: RunLoop.main)
+            .sink { [weak self] themeID in
+                guard let self else { return }
+                TerminalThemeCatalog.apply(to: self.terminalView, themeID: themeID)
+                self.view.backgroundColor = self.terminalView.nativeBackgroundColor
             }
 
         if let session {

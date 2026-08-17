@@ -24,8 +24,8 @@ extension Translations {
         "端口占用": "Port Usage",
         "Docker 管理": "Docker",
         "系统监控": "System Monitor",
-        "功能完整的 SSH 客户端\n支持密钥认证、跳板机、连接分组与 iCloud 同步":
-            "A full-featured SSH client\nwith key authentication, jump hosts, connection groups, and iCloud sync",
+        "功能完整的 SSH 客户端\n支持密钥认证、跳板机与连接分组":
+            "A full-featured SSH client\nwith key authentication, jump hosts, and connection groups",
         "从左侧栏选择或新增一个 SSH 连接开始":
             "Select or add an SSH connection in the sidebar to get started",
 

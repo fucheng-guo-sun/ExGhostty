@@ -4,9 +4,9 @@
 //
 //  One-time migrations for persisted data renamed after the "iOSTerminal"
 //  leftovers were cleaned up, plus purges for removed features. Runs from
-//  ExGhosttyApp.init() before any store (or ICloudSyncManager) touches
-//  UserDefaults. Keychain items are NOT handled here — KeychainHelper
-//  migrates them lazily on first read.
+//  ExGhosttyApp.init() before any store touches UserDefaults. Keychain
+//  items are NOT handled here — KeychainHelper migrates them lazily on
+//  first read.
 //
 
 import Foundation

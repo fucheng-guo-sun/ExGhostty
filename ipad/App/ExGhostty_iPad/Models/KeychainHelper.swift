@@ -3,10 +3,11 @@
 //  ExGhostty_iPad
 //
 //  Minimal Keychain wrapper for storing connection passwords and private
-//  keys. Items are marked synchronizable (iCloud Keychain); every query
-//  must therefore include kSecAttrSynchronizableAny, otherwise reads miss
-//  synchronizable items (observed on devices without iCloud signed in:
-//  SecItemAdd succeeds, SecItemCopyMatching returns errSecItemNotFound).
+//  keys. Every query must include kSecAttrSynchronizableAny, otherwise
+//  reads miss the synchronizable items written by older builds (observed
+//  on devices without iCloud signed in: SecItemAdd succeeds,
+//  SecItemCopyMatching returns errSecItemNotFound). New items are written
+//  non-synchronizable — iCloud sync has been removed from the app.
 //
 //  The service names were renamed from the SwiftTerm-sample leftovers
 //  (org.tirania.SwiftTerm.iosSampleApp1.*); reads fall back to the legacy
@@ -93,11 +94,14 @@ enum KeychainHelper {
     private static func save(_ data: Data, service: String, account: String) {
         let base = query(service: service, account: account)
         if SecItemCopyMatching(base as CFDictionary, nil) == errSecSuccess {
-            SecItemUpdate(base as CFDictionary, [kSecValueData as String: data] as CFDictionary)
+            // 顺带把旧版本写入的 synchronizable 条目迁回本地（iCloud 同步已移除）。
+            SecItemUpdate(base as CFDictionary, [
+                kSecValueData as String: data,
+                kSecAttrSynchronizable as String: false,
+            ] as CFDictionary)
         } else {
             var item = base
             item[kSecValueData as String] = data
-            item[kSecAttrSynchronizable as String] = true
             SecItemAdd(item as CFDictionary, nil)
         }
     }

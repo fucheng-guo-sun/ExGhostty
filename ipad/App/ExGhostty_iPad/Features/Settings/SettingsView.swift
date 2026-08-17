@@ -4,8 +4,8 @@
 //
 //  Settings page with the Mac version's split layout: a category list on
 //  the left and the detail pane on the right. Categories: General
-//  (language / editor / iCloud sync), Theme (UI placeholder — switching is
-//  not implemented yet), Appearance (bundled fonts + size), AI and Keys.
+//  (language / editor), Theme (574 bundled ghostty themes, applied live),
+//  Appearance (bundled fonts + size), AI and Keys.
 //  Settings apply live (UserDefaults-backed stores), so the top-left back
 //  button just pops the page; no explicit save step is needed.
 //
@@ -49,13 +49,9 @@ struct SettingsView: View {
             .navigationTitle(L("设置"))
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
-                // 设置均为 UserDefaults 即时落盘，返回即已保存；
-                // 开了 iCloud 同步的话顺手推一次远端。
+                // 设置均为 UserDefaults 即时落盘，返回即已保存。
                 ToolbarItem(placement: .topBarLeading) {
                     Button {
-                        if settings.iCloudSyncEnabled {
-                            ICloudSyncManager.shared.syncNow()
-                        }
                         dismiss()
                     } label: {
                         Label(L("返回"), systemImage: "chevron.left")
@@ -114,31 +110,10 @@ struct SettingsView: View {
                 .pickerStyle(.menu)
             }
             hintText(L("SFTP 文件列表中「使用编辑器打开」会在终端里执行该编辑器。"))
-
-            settingsRow(label: L("iCloud 同步")) {
-                Toggle("", isOn: $settings.iCloudSyncEnabled)
-                    .labelsHidden()
-                    .tint(.teal)
-                    .onChange(of: settings.iCloudSyncEnabled) { _, enabled in
-                        if enabled {
-                            ICloudSyncManager.shared.start()
-                            ICloudSyncManager.shared.syncNow()
-                        } else {
-                            ICloudSyncManager.shared.stop()
-                        }
-                    }
-            }
-            hintText(L("连接配置和密钥元数据通过 iCloud 键值存储同步；密码与私钥通过 iCloud 钥匙串同步。其他设备上的变更将在下次启动时生效。"))
         }
     }
 
-    // MARK: - 主题（占位）
-
-    private static let themeOptions: [(id: String, name: String)] = [
-        ("default", "默认深色"),
-        ("light", "浅色"),
-        ("high-contrast", "高对比度"),
-    ]
+    // MARK: - 主题
 
     private var themeSection: some View {
         VStack(alignment: .leading, spacing: 16) {
@@ -150,28 +125,18 @@ struct SettingsView: View {
                 GridItem(.flexible(), spacing: 16),
             ]
             LazyVGrid(columns: columns, spacing: 16) {
-                ForEach(Self.themeOptions, id: \.id) { option in
-                    Text(L(option.name))
-                        .font(.subheadline)
-                        .frame(maxWidth: .infinity)
-                        .padding(.vertical, 20)
-                        .background(
-                            RoundedRectangle(cornerRadius: 8)
-                                .fill(settings.themeName == option.id
-                                      ? Color.teal.opacity(0.25)
-                                      : Color(white: 0.15))
-                        )
-                        .overlay(
-                            RoundedRectangle(cornerRadius: 8)
-                                .stroke(settings.themeName == option.id ? Color.teal : Color.clear, lineWidth: 1)
-                        )
-                        .onTapGesture {
-                            settings.themeName = option.id
-                        }
+                ForEach(TerminalThemeCatalog.all) { theme in
+                    ThemeCell(
+                        theme: theme,
+                        isSelected: TerminalThemeCatalog.entry(for: settings.themeName).id == theme.id
+                    )
+                    .onTapGesture {
+                        settings.themeName = theme.id
+                    }
                 }
             }
 
-            hintText(L("主题切换即将推出，当前始终使用深色主题。"))
+            hintText(L("主题立即应用到所有打开的终端会话。"))
         }
     }
 

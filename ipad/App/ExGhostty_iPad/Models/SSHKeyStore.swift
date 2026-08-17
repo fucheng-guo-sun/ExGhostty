@@ -54,13 +54,6 @@ final class SSHKeyStore: ObservableObject {
         save()
     }
 
-    /// Replaces the metadata list (used by iCloud sync). Key material is
-    /// expected to arrive via iCloud Keychain separately.
-    func replaceAll(_ newKeys: [SSHKeyMeta]) {
-        keys = newKeys
-        save()
-    }
-
     private func load() {
         guard let data = UserDefaults.standard.data(forKey: defaultsKey),
               let decoded = try? JSONDecoder().decode([SSHKeyMeta].self, from: data) else {

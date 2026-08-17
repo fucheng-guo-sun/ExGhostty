@@ -34,7 +34,7 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(terminalFontName, forKey: "terminal.fontName") }
     }
 
-    /// 主题选择（占位：UI 已保留，切换逻辑后续实现）。
+    /// 主题 id：TerminalThemeCatalog 的条目（"default" 或 ghostty 主题名）。
     @Published var themeName: String {
         didSet { defaults.set(themeName, forKey: "app.theme") }
     }
@@ -55,10 +55,6 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(terminalEditor, forKey: "terminal.editor") }
     }
 
-    @Published var iCloudSyncEnabled: Bool {
-        didSet { defaults.set(iCloudSyncEnabled, forKey: "iCloud.syncEnabled") }
-    }
-
     init() {
         self.aiEndpoint = defaults.string(forKey: "ai.endpoint") ?? "https://api.openai.com/v1"
         self.aiAPIKey = defaults.string(forKey: "ai.apikey") ?? ""
@@ -71,6 +67,5 @@ final class SettingsStore: ObservableObject {
         // Bool 键未写入过时应默认为 true，不能用 ?? false。
         self.terminalCursorBlink = defaults.object(forKey: "terminal.cursorBlink") as? Bool ?? true
         self.terminalEditor = defaults.string(forKey: "terminal.editor") ?? "vim"
-        self.iCloudSyncEnabled = defaults.bool(forKey: "iCloud.syncEnabled")
     }
 }
