@@ -1,6 +1,6 @@
 //
 //  AIAssistantHistoryStore.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Persists AI assistant conversations in UserDefaults as JSON.
 //  Each conversation keeps at most 100 messages; the store keeps at most

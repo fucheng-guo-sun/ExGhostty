@@ -1,6 +1,6 @@
 //
 //  SSHIdentity.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  "User Identity": after logging in as the connection's user, switch to a
 //  configured target user via sudo. Ported from ExGhostty (macOS).

@@ -1,6 +1,6 @@
 //
 //  ConnectionStore.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Persists SSH connection configs as JSON in UserDefaults.
 //  Passwords live in Keychain (see KeychainHelper), never in this store.
@@ -11,7 +11,7 @@ import Foundation
 final class ConnectionStore: ObservableObject {
     static let shared = ConnectionStore()
 
-    private let defaultsKey = "iosterminal.connections"
+    private let defaultsKey = "exghostty.ipad.connections"
 
     @Published private(set) var connections: [SSHConnectionConfig] = []
 

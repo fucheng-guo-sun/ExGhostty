@@ -1,6 +1,6 @@
 //
 //  ConnectionEditView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Add / edit form for an SSH connection.
 //

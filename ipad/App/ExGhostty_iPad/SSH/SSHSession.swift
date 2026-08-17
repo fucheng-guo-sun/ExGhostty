@@ -1,11 +1,11 @@
 //
 //  SSHSession.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Core SSH connection object shared by the terminal and all feature panels.
 //  Built on NIOSSH: one transport channel per session, child channels for
-//  shell / exec / sftp / port forwarding. Supports password and private-key
-//  authentication, plus an optional jump host (ssh -J).
+//  shell / exec / sftp. Supports password and private-key authentication,
+//  plus an optional jump host (ssh -J).
 //
 
 import Foundation
@@ -258,16 +258,6 @@ final class SSHSession: ObservableObject {
     private var transport: Channel?
     private var jumpTransport: Channel?
 
-    /// Remote (-R) forwards currently active: server listen port -> rule.
-    /// Consulted by the forwardedTCPIP inbound channel initializer.
-    private var remoteForwards: [Int: PortForwardRule] = [:]
-
-    /// Async cleanup run before the event loop group is shut down (both on
-    /// explicit disconnect and on remote close). Set by the view layer to
-    /// tear down port-forward listeners etc., so no channel operation lands
-    /// on an already-dead event loop.
-    var preShutdown: (() async -> Void)?
-
     init(config: SSHConnectionConfig, password: String?, privateKey: NIOSSHPrivateKey? = nil) {
         self.config = config
         self.password = password
@@ -293,8 +283,7 @@ final class SSHSession: ObservableObject {
                         username: jump.config.username,
                         password: jump.password,
                         privateKey: jump.privateKey
-                    ),
-                    acceptForwardedChannels: false
+                    )
                 )
                 self.jumpTransport = jumpChannel
                 let nested = try await openNestedTransport(
@@ -311,8 +300,7 @@ final class SSHSession: ObservableObject {
                         username: config.username,
                         password: password,
                         privateKey: privateKey
-                    ),
-                    acceptForwardedChannels: true
+                    )
                 )
             }
             await setState(.connected)
@@ -326,9 +314,7 @@ final class SSHSession: ObservableObject {
 
     func disconnect() {
         closeTransports()
-        let preShutdown = self.preShutdown
         Task {
-            if let preShutdown { await preShutdown() }
             shutdownGroup()
             await setState(.closed)
         }
@@ -347,8 +333,7 @@ final class SSHSession: ObservableObject {
     private func openTransport(
         host: String,
         port: Int,
-        authDelegate: NIOSSHClientUserAuthenticationDelegate,
-        acceptForwardedChannels: Bool
+        authDelegate: NIOSSHClientUserAuthenticationDelegate
     ) async throws -> Channel {
         guard let group else { throw SSHSessionError.notConnected }
 
@@ -358,8 +343,7 @@ final class SSHSession: ObservableObject {
                     guard let self else { return }
                     try self.installSSHHandlers(
                         on: channel,
-                        authDelegate: authDelegate,
-                        acceptForwardedChannels: acceptForwardedChannels
+                        authDelegate: authDelegate
                     )
                 }
             }
@@ -416,8 +400,7 @@ final class SSHSession: ObservableObject {
                                 username: self.config.username,
                                 password: self.password,
                                 privateKey: self.privateKey
-                            ),
-                            acceptForwardedChannels: true
+                            )
                         )
                     }
                 }
@@ -432,19 +415,17 @@ final class SSHSession: ObservableObject {
 
     private func installSSHHandlers(
         on channel: Channel,
-        authDelegate: NIOSSHClientUserAuthenticationDelegate,
-        acceptForwardedChannels: Bool
+        authDelegate: NIOSSHClientUserAuthenticationDelegate
     ) throws {
+        // inboundChildChannelInitializer is nil: we never request remote
+        // forwarding, so no forwardedTCPIP channels should arrive.
         let sshHandler = NIOSSHHandler(
             role: .client(.init(
                 userAuthDelegate: authDelegate,
                 serverAuthDelegate: AcceptAllHostKeysDelegate()
             )),
             allocator: channel.allocator,
-            inboundChildChannelInitializer: acceptForwardedChannels
-                ? { [weak self] child, type in self?.handleForwardedChannel(child, type: type)
-                    ?? child.eventLoop.makeSucceededFuture(()) }
-                : nil
+            inboundChildChannelInitializer: nil
         )
         try channel.pipeline.syncOperations.addHandler(sshHandler)
         try channel.pipeline.syncOperations.addHandler(
@@ -452,25 +433,6 @@ final class SSHSession: ObservableObject {
                 self?.transportFailed(error)
             }
         )
-    }
-
-    /// Handles inbound forwardedTCPIP channels (remote -R forwarding):
-    /// connects to the rule's target and glues both sides.
-    private func handleForwardedChannel(_ child: Channel, type: SSHChannelType) -> EventLoopFuture<Void> {
-        guard case .forwardedTCPIP(let forwarded) = type else {
-            return child.eventLoop.makeFailedFuture(SSHSessionError.invalidChannelType)
-        }
-        guard let rule = remoteForwards[forwarded.listeningPort], let group else {
-            return child.eventLoop.makeFailedFuture(SSHSessionError.notConnected)
-        }
-        return child.pipeline.addHandler(SSHDataCodec()).flatMap {
-            ClientBootstrap(group: group)
-                .channelOption(ChannelOptions.autoRead, value: false)
-                .connectTimeout(.seconds(10))
-                .connect(host: rule.targetHost, port: rule.targetPort)
-        }.flatMap { local in
-            GlueHandler.glue(child, local)
-        }
     }
 
     // MARK: Exec
@@ -547,70 +509,6 @@ final class SSHSession: ObservableObject {
         return promise.futureResult
     }
 
-    /// Opens a directTCPIP channel through the (possibly nested) transport —
-    /// the server dials host:port on our behalf. Used by -L and -D forwarding.
-    func openDirectTCPIP(host: String, port: Int) -> EventLoopFuture<Channel> {
-        guard let transport, transport.isActive, group != nil else {
-            return MultiThreadedEventLoopGroup.singleton.next()
-                .makeFailedFuture(SSHSessionError.notConnected)
-        }
-        let originator = (try? SocketAddress(ipAddress: "127.0.0.1", port: 0))
-            ?? transport.localAddress!
-        let channelType = SSHChannelType.directTCPIP(.init(
-            targetHost: host,
-            targetPort: port,
-            originatorAddress: originator
-        ))
-        let promise = transport.eventLoop.makePromise(of: Channel.self)
-        transport.pipeline.handler(type: NIOSSHHandler.self).whenComplete { result in
-            switch result {
-            case .failure(let error):
-                promise.fail(error)
-            case .success(let sshHandler):
-                sshHandler.createChannel(promise, channelType: channelType) { child, type in
-                    guard case .directTCPIP = type else {
-                        return child.eventLoop.makeFailedFuture(SSHSessionError.invalidChannelType)
-                    }
-                    // Pause reads until the glue is installed, so data that
-                    // arrives immediately (e.g. an sshd banner) is not dropped.
-                    return child.setOption(ChannelOptions.autoRead, value: false).flatMap {
-                        child.pipeline.addHandler(SSHDataCodec())
-                    }
-                }
-            }
-        }
-        return promise.futureResult
-    }
-
-    func requireTransport() throws -> Channel {
-        guard let transport else { throw SSHSessionError.notConnected }
-        return transport
-    }
-
-    func requireGroup() throws -> MultiThreadedEventLoopGroup {
-        guard let group else { throw SSHSessionError.notConnected }
-        return group
-    }
-
-    /// The NIOSSHHandler of the (possibly nested) transport, for global requests.
-    func sshHandler() async throws -> NIOSSHHandler {
-        let transport = try requireTransport()
-        guard transport.isActive, group != nil else {
-            throw SSHSessionError.notConnected
-        }
-        return try await transport.pipeline.handler(type: NIOSSHHandler.self).get()
-    }
-
-    // MARK: Remote forwarding bookkeeping
-
-    func registerRemoteForward(rule: PortForwardRule) {
-        remoteForwards[rule.listenPort] = rule
-    }
-
-    func unregisterRemoteForward(port: Int) {
-        remoteForwards.removeValue(forKey: port)
-    }
-
     // MARK: State helpers
 
     @MainActor
@@ -633,10 +531,7 @@ final class SSHSession: ObservableObject {
         // call on it leaks a promise and crashes.
         transport = nil
         jumpTransport = nil
-        let preShutdown = self.preShutdown
         Task {
-            // Tear down listeners etc. before the group goes away.
-            if let preShutdown { await preShutdown() }
             let current = await state
             if current == .connected || current == .connecting {
                 await setState(.closed)

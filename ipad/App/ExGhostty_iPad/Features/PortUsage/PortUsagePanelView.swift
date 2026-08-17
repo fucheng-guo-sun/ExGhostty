@@ -1,6 +1,6 @@
 //
 //  PortUsagePanelView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Port usage panel: lists listening ports on the remote host,
 //  with search filtering, UDP toggle and process kill support.

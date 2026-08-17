@@ -1,6 +1,6 @@
 //
 //  SettingsStore.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  App-wide settings persisted in UserDefaults.
 //
@@ -29,6 +29,12 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(terminalFontSize, forKey: "terminal.fontSize") }
     }
 
+    /// Terminal editor used by SFTP's "open with editor" action.
+    /// Raw value of TerminalEditor (see SettingsView).
+    @Published var terminalEditor: String {
+        didSet { defaults.set(terminalEditor, forKey: "terminal.editor") }
+    }
+
     @Published var iCloudSyncEnabled: Bool {
         didSet { defaults.set(iCloudSyncEnabled, forKey: "iCloud.syncEnabled") }
     }
@@ -39,6 +45,7 @@ final class SettingsStore: ObservableObject {
         self.aiModel = defaults.string(forKey: "ai.model") ?? "gpt-4o-mini"
         let size = defaults.double(forKey: "terminal.fontSize")
         self.terminalFontSize = size > 0 ? size : 13
+        self.terminalEditor = defaults.string(forKey: "terminal.editor") ?? "vim"
         self.iCloudSyncEnabled = defaults.bool(forKey: "iCloud.syncEnabled")
     }
 }

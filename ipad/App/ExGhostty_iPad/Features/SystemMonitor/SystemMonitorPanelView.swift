@@ -1,6 +1,6 @@
 //
 //  SystemMonitorPanelView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  System monitor panel: card-style dashboard showing CPU, memory,
 //  disks, network throughput and top CPU processes of the remote host.

@@ -1,6 +1,6 @@
 //
 //  SshTerminalView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  SwiftTerm TerminalView bound to a shell child channel of an SSHSession.
 //

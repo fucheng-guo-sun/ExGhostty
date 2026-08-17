@@ -1,9 +1,9 @@
 //
 //  SessionReusePanelView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
-//  Session reuse panel: lists remote tmux/zellij sessions and lets the user
-//  create / attach / kill / detach them. All operations are sent to the
+//  Session reuse panel: lists remote tmux/rmux/zellij sessions and lets the
+//  user create / attach / kill / detach them. All operations are sent to the
 //  current terminal tab as keystrokes, so the user can watch them run.
 //
 
@@ -12,12 +12,17 @@ import SwiftUI
 struct SessionReusePanelView: View {
     @StateObject private var viewModel: SessionReuseViewModel
 
+    /// Switches the session page back to the terminal panel (attach/create/
+    /// detach all change what the terminal shows, so let the user see it).
+    private let onOpenInTerminal: () -> Void
+
     @State private var newSessionKind: MultiplexerKind?
     @State private var newSessionName = ""
     @State private var killConfirmation: SessionKillConfirmation?
 
-    init(session: SSHSession, terminalBox: TerminalBox) {
+    init(session: SSHSession, terminalBox: TerminalBox, onOpenInTerminal: @escaping () -> Void) {
         _viewModel = StateObject(wrappedValue: SessionReuseViewModel(session: session, terminalBox: terminalBox))
+        self.onOpenInTerminal = onOpenInTerminal
     }
 
     var body: some View {
@@ -46,7 +51,7 @@ struct SessionReusePanelView: View {
             loadingView
         } else if let errorMessage = viewModel.errorMessage, !viewModel.hasLoadedOnce {
             errorView(message: errorMessage)
-        } else if !viewModel.tmuxInstalled && !viewModel.zellijInstalled {
+        } else if !viewModel.tmuxInstalled && !viewModel.rmuxInstalled && !viewModel.zellijInstalled {
             installGuideView
         } else {
             sessionListView
@@ -59,7 +64,7 @@ struct SessionReusePanelView: View {
         VStack(spacing: 12) {
             Spacer()
             ProgressView()
-            Text("正在检测远端 tmux / zellij 环境…")
+            Text("正在检测远端 tmux / rmux / zellij 环境…")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
             Spacer()
@@ -98,7 +103,7 @@ struct SessionReusePanelView: View {
                     .foregroundStyle(.secondary)
                     .padding(.top, 24)
 
-                Text("远端未安装 tmux 或 zellij")
+                Text("远端未安装 tmux / rmux / zellij")
                     .font(.headline)
 
                 Text("会话复用需要远端安装终端复用工具。可以将下面的安装命令一键发送到当前终端标签页执行。")
@@ -118,25 +123,33 @@ struct SessionReusePanelView: View {
     private func installCard(kind: MultiplexerKind) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Image(systemName: kind == .tmux ? "terminal" : "square.grid.2x2")
+                Image(systemName: installIcon(for: kind))
                     .foregroundStyle(.teal)
                 Text(kind.displayName)
                     .font(.subheadline.weight(.semibold))
                 Spacer()
-                Button {
-                    viewModel.sendInstallCommand(kind: kind)
-                } label: {
-                    Label("发送到终端", systemImage: "paperplane")
-                        .font(.caption)
+                if SessionReuseViewModel.installCommand(for: kind) != nil {
+                    Button {
+                        viewModel.sendInstallCommand(kind: kind)
+                    } label: {
+                        Label("发送到终端", systemImage: "paperplane")
+                            .font(.caption)
+                    }
+                    .buttonStyle(.borderedProminent)
+                    .tint(.teal)
                 }
-                .buttonStyle(.borderedProminent)
-                .tint(.teal)
             }
 
-            Text(SessionReuseViewModel.installCommand(for: kind))
-                .font(.caption.monospaced())
-                .foregroundStyle(.secondary)
-                .textSelection(.enabled)
+            if let command = SessionReuseViewModel.installCommand(for: kind) {
+                Text(command)
+                    .font(.caption.monospaced())
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+            } else {
+                Text("rmux 不在 apt 仓库中，请参照其项目文档手动安装。")
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+            }
 
             if kind == .zellij {
                 Text("较旧的 Ubuntu 可能没有 zellij 软件包，可改用 cargo install zellij。")
@@ -148,6 +161,14 @@ struct SessionReusePanelView: View {
         .background(Color(white: 0.13))
         .cornerRadius(10)
         .padding(.horizontal, 16)
+    }
+
+    private func installIcon(for kind: MultiplexerKind) -> String {
+        switch kind {
+        case .tmux: return "terminal"
+        case .rmux: return "rectangle.split.2x1"
+        case .zellij: return "square.grid.2x2"
+        }
     }
 
     // MARK: - 会话列表
@@ -171,6 +192,14 @@ struct SessionReusePanelView: View {
                         kind: .tmux,
                         icon: "terminal",
                         sessions: viewModel.tmuxSessions
+                    )
+                }
+
+                if viewModel.rmuxInstalled {
+                    sessionSection(
+                        kind: .rmux,
+                        icon: "rectangle.split.2x1",
+                        sessions: viewModel.rmuxSessions
                     )
                 }
 
@@ -215,6 +244,7 @@ struct SessionReusePanelView: View {
 
                 Button {
                     viewModel.detach(kind: kind)
+                    onOpenInTerminal()
                 } label: {
                     Image(systemName: "escape")
                         .font(.caption.weight(.medium))
@@ -281,6 +311,7 @@ struct SessionReusePanelView: View {
         .contentShape(Rectangle())
         .onTapGesture {
             viewModel.attachSession(kind: kind, name: name)
+            onOpenInTerminal()
         }
     }
 
@@ -316,6 +347,7 @@ struct SessionReusePanelView: View {
                         let name = newSessionName
                         newSessionKind = nil
                         viewModel.createSession(kind: kind, name: name)
+                        onOpenInTerminal()
                     }
                     .disabled(newSessionName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
                     .tint(.teal)

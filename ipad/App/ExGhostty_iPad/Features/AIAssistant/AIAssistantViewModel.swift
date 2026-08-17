@@ -1,6 +1,6 @@
 //
 //  AIAssistantViewModel.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  View model for the AI assistant panel: manages the current
 //  conversation, streams replies through AIAssistantService, collects

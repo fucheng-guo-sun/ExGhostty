@@ -1,6 +1,6 @@
 //
 //  TerminalSessionView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  SSH session page: a top function bar switches between the terminal and
 //  the feature panels (SFTP, session reuse, port usage, Docker, system
@@ -14,7 +14,6 @@ enum SessionFunction: String, CaseIterable, Identifiable {
     case sftp
     case sessionReuse
     case portUsage
-    case portForward
     case docker
     case systemMonitor
     case aiAssistant
@@ -27,7 +26,6 @@ enum SessionFunction: String, CaseIterable, Identifiable {
         case .sftp: return "SFTP"
         case .sessionReuse: return "Session"
         case .portUsage: return "端口"
-        case .portForward: return "转发"
         case .docker: return "Docker"
         case .systemMonitor: return "监控"
         case .aiAssistant: return "AI"
@@ -40,7 +38,6 @@ enum SessionFunction: String, CaseIterable, Identifiable {
         case .sftp: return "folder"
         case .sessionReuse: return "rectangle.split.3x1"
         case .portUsage: return "network"
-        case .portForward: return "arrow.triangle.branch"
         case .docker: return "shippingbox"
         case .systemMonitor: return "gauge"
         case .aiAssistant: return "sparkles"
@@ -63,7 +60,6 @@ struct TerminalSessionView: View {
 
     private var config: SSHConnectionConfig { tab.config }
     private var session: SSHSession { tab.session }
-    private var forwardManager: PortForwardManager { tab.forwardManager }
     private var terminalBox: TerminalBox { tab.terminalBox }
 
     @State private var selectedFunction: SessionFunction = .terminal
@@ -145,13 +141,21 @@ struct TerminalSessionView: View {
         case .terminal:
             EmptyView()
         case .sftp:
-            SFTPPanelView(session: session)
+            SFTPPanelView(session: session, terminalBox: terminalBox) {
+                // The editor command was typed into the terminal; show it.
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    selectedFunction = .terminal
+                }
+            }
         case .sessionReuse:
-            SessionReusePanelView(session: session, terminalBox: terminalBox)
+            SessionReusePanelView(session: session, terminalBox: terminalBox) {
+                // Attach/create was typed into the terminal; show it.
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    selectedFunction = .terminal
+                }
+            }
         case .portUsage:
             PortUsagePanelView(session: session)
-        case .portForward:
-            PortForwardPanelView(session: session, manager: forwardManager)
         case .docker:
             DockerPanelView(session: session)
         case .systemMonitor:

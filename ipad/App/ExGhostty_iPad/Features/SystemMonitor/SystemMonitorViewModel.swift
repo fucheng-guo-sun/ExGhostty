@@ -1,6 +1,6 @@
 //
 //  SystemMonitorViewModel.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  System monitor data collection: runs a portable shell script on the
 //  remote Linux host via SSHSession.exec, parses key=value output and

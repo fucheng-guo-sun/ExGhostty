@@ -1,6 +1,6 @@
 //
 //  TerminalTabContainerView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Right side of the split view: a tab bar plus the tab contents. Every tab
 //  stays in the view hierarchy (hidden with opacity) so its terminal session
@@ -96,7 +96,6 @@ private struct IntroView: View {
         ("folder", "SFTP 文件管理"),
         ("rectangle.split.3x1", "Session 复用"),
         ("network", "端口占用"),
-        ("arrow.triangle.branch", "端口转发"),
         ("shippingbox", "Docker 管理"),
         ("gauge", "系统监控"),
         ("sparkles", "AI 助手"),
@@ -108,7 +107,7 @@ private struct IntroView: View {
                 Image(systemName: "terminal.fill")
                     .font(.system(size: 56))
                     .foregroundStyle(.teal)
-                Text("iOSTerminal")
+                Text("ExGhostty")
                     .font(.system(size: 28, weight: .bold))
                     .lineLimit(1)
                     .minimumScaleFactor(0.5)

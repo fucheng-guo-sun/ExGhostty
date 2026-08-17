@@ -1,6 +1,6 @@
 //
 //  SSHKeyParser.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Parses unencrypted OpenSSH ("openssh-key-v1") and PEM private keys
 //  (Ed25519 / ECDSA / RSA) into NIOSSHPrivateKey. RSA support comes from

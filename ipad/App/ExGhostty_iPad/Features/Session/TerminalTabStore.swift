@@ -1,6 +1,6 @@
 //
 //  TerminalTabStore.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Owns the open terminal tabs shown on the right side of the split view.
 //  Each tab holds its own SSHSession, so backgrounded tabs keep running;
@@ -15,7 +15,6 @@ final class TerminalTab: Identifiable, ObservableObject {
     let id = UUID()
     let config: SSHConnectionConfig
     let session: SSHSession
-    let forwardManager: PortForwardManager
     let terminalBox = TerminalBox()
 
     var title: String { config.displayName }
@@ -26,32 +25,21 @@ final class TerminalTab: Identifiable, ObservableObject {
     init(config: SSHConnectionConfig) {
         self.config = config
         let session = SessionFactory.makeSession(for: config)
-        let forwardManager = PortForwardManager(session: session)
-        // Listeners must be torn down before the session's event loop group
-        // shuts down, whether we disconnect or the server drops us.
-        session.preShutdown = { await forwardManager.stopAll() }
         self.session = session
-        self.forwardManager = forwardManager
         // Views observing the tab still refresh when the session publishes.
         cancellable = session.objectWillChange.sink { [weak self] in
             self?.objectWillChange.send()
         }
     }
 
-    /// Connects on first use, then starts the saved port-forward rules.
+    /// Connects on first use.
     @MainActor
     func connectIfNeeded() async {
         guard session.state == .idle else { return }
         try? await session.connect()
-        if session.isConnected {
-            await forwardManager.startAll(
-                rules: PortForwardStore.shared.rules(for: config.id)
-            )
-        }
     }
 
     func disconnect() {
-        // stopAll runs inside disconnect() via preShutdown.
         session.disconnect()
     }
 }

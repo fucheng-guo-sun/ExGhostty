@@ -1,6 +1,6 @@
 //
 //  SSHKeyStore.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Manages imported SSH private keys. Metadata (name/type/fingerprint-ish)
 //  lives in UserDefaults; the private key material itself lives in Keychain.
@@ -19,7 +19,7 @@ struct SSHKeyMeta: Codable, Identifiable, Hashable {
 final class SSHKeyStore: ObservableObject {
     static let shared = SSHKeyStore()
 
-    private let defaultsKey = "iosterminal.sshKeys"
+    private let defaultsKey = "exghostty.ipad.sshKeys"
 
     @Published private(set) var keys: [SSHKeyMeta] = []
 

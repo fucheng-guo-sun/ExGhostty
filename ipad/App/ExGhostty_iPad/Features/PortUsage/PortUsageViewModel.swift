@@ -1,6 +1,6 @@
 //
 //  PortUsageViewModel.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Port usage panel: scans LISTEN ports on the remote host over SSH,
 //  parses lsof -F style field output and kills processes on request.

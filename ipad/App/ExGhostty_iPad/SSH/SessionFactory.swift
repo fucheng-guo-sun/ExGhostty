@@ -1,6 +1,6 @@
 //
 //  SessionFactory.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Builds an SSHSession from a saved connection config, resolving
 //  credentials (Keychain password / imported private key) and the

@@ -1,6 +1,6 @@
 //
 //  SSHConnectionConfig.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Model for a saved SSH connection. Passwords are stored separately in Keychain.
 //

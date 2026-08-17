@@ -1,6 +1,6 @@
 //
 //  TerminalHostViewController.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  UIKit container hosting a full-size SshTerminalView with keyboard handling.
 //

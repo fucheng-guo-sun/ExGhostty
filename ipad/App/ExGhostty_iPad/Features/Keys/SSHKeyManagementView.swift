@@ -1,6 +1,6 @@
 //
 //  SSHKeyManagementView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Lists imported SSH private keys and offers two import paths:
 //  picking a key file, or pasting the key text directly.

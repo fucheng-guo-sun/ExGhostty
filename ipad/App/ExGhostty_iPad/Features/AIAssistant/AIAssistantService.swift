@@ -1,6 +1,6 @@
 //
 //  AIAssistantService.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  OpenAI-compatible streaming chat service for the AI assistant panel.
 //  Reads endpoint / apiKey / model from SettingsStore, posts to

@@ -1,6 +1,6 @@
 //
 //  AIAssistantPanelView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  AI assistant panel: chat bubbles over an SSH session. AI replies are
 //  streamed in; ```command code blocks can be sent straight to the

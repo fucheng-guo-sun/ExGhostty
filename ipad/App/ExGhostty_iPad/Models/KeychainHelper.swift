@@ -1,6 +1,6 @@
 //
 //  KeychainHelper.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Minimal Keychain wrapper for storing connection passwords and private
 //  keys. Items are marked synchronizable (iCloud Keychain); every query
@@ -8,12 +8,22 @@
 //  synchronizable items (observed on devices without iCloud signed in:
 //  SecItemAdd succeeds, SecItemCopyMatching returns errSecItemNotFound).
 //
+//  The service names were renamed from the SwiftTerm-sample leftovers
+//  (org.tirania.SwiftTerm.iosSampleApp1.*); reads fall back to the legacy
+//  service and migrate the item on first access.
+//
 
 import Foundation
 import Security
 
 enum KeychainHelper {
-    private static let service = "org.tirania.SwiftTerm.iosSampleApp1.passwords"
+    /// Current service-name prefix (matches the bundle identifier).
+    private static let servicePrefix = "com.xjai.exghostty.ipad"
+    /// Legacy prefix from the SwiftTerm sample app; items under it are
+    /// migrated to the current service on first read.
+    private static let legacyServicePrefix = "org.tirania.SwiftTerm.iosSampleApp1"
+
+    private static let service = "\(servicePrefix).passwords"
 
     private static func query(service: String, account: String) -> [String: Any] {
         [
@@ -33,12 +43,12 @@ enum KeychainHelper {
     }
 
     static func deletePassword(for id: UUID) {
-        SecItemDelete(query(service: service, account: id.uuidString) as CFDictionary)
+        delete(service: service, account: id.uuidString)
     }
 
     // MARK: - Private keys
 
-    private static let keyService = "org.tirania.SwiftTerm.iosSampleApp1.keys"
+    private static let keyService = "\(servicePrefix).keys"
 
     static func saveKey(_ text: String, for id: UUID) {
         save(Data(text.utf8), service: keyService, account: id.uuidString)
@@ -49,12 +59,12 @@ enum KeychainHelper {
     }
 
     static func deleteKey(for id: UUID) {
-        SecItemDelete(query(service: keyService, account: id.uuidString) as CFDictionary)
+        delete(service: keyService, account: id.uuidString)
     }
 
     // MARK: - Identity sudo passwords
 
-    private static let identityService = "org.tirania.SwiftTerm.iosSampleApp1.identity"
+    private static let identityService = "\(servicePrefix).identity"
 
     static func saveIdentityPassword(_ password: String, for id: UUID) {
         save(Data(password.utf8), service: identityService, account: id.uuidString)
@@ -65,10 +75,20 @@ enum KeychainHelper {
     }
 
     static func deleteIdentityPassword(for id: UUID) {
-        SecItemDelete(query(service: identityService, account: id.uuidString) as CFDictionary)
+        delete(service: identityService, account: id.uuidString)
     }
 
     // MARK: - Shared implementation
+
+    /// Deletes the item from both the current and the legacy service, so
+    /// unmigrated leftovers cannot survive the deletion of a connection.
+    private static func delete(service: String, account: String) {
+        SecItemDelete(query(service: service, account: account) as CFDictionary)
+        let legacy = service.replacingOccurrences(of: servicePrefix, with: legacyServicePrefix)
+        if legacy != service {
+            SecItemDelete(query(service: legacy, account: account) as CFDictionary)
+        }
+    }
 
     private static func save(_ data: Data, service: String, account: String) {
         let base = query(service: service, account: account)
@@ -83,6 +103,21 @@ enum KeychainHelper {
     }
 
     private static func read(service: String, account: String) -> String? {
+        if let value = readDirect(service: service, account: account) {
+            return value
+        }
+        // Fall back to the legacy (SwiftTerm sample) service name and
+        // migrate the item into the current service on first access.
+        let legacy = service.replacingOccurrences(of: servicePrefix, with: legacyServicePrefix)
+        guard legacy != service, let value = readDirect(service: legacy, account: account) else {
+            return nil
+        }
+        save(Data(value.utf8), service: service, account: account)
+        SecItemDelete(query(service: legacy, account: account) as CFDictionary)
+        return value
+    }
+
+    private static func readDirect(service: String, account: String) -> String? {
         var readQuery = query(service: service, account: account)
         readQuery[kSecReturnData as String] = true
         readQuery[kSecMatchLimit as String] = kSecMatchLimitOne

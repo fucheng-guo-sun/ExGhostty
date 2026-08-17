@@ -1,6 +1,6 @@
 //
 //  DockerViewModel.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Docker 管理面板的数据层：通过 SSHSession 在远程主机执行 docker CLI，
 //  解析 `--format '{{json .}}'` 的逐行 JSON 输出，并执行容器/镜像操作。

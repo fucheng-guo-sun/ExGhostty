@@ -1,6 +1,6 @@
 //
 //  SettingsView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Settings page: AI assistant configuration, terminal appearance
 //  and iCloud sync.
@@ -36,7 +36,7 @@ struct SettingsView: View {
                     }
                 }
 
-                Section("终端") {
+                Section {
                     HStack {
                         Text("字号")
                         Spacer()
@@ -51,6 +51,15 @@ struct SettingsView: View {
                         )
                         .labelsHidden()
                     }
+                    Picker("编辑器", selection: $settings.terminalEditor) {
+                        ForEach(TerminalEditor.allCases) { editor in
+                            Text(editor.rawValue).tag(editor.rawValue)
+                        }
+                    }
+                } header: {
+                    Text("终端")
+                } footer: {
+                    Text("SFTP 文件列表中「使用编辑器打开」会在终端里执行该编辑器。")
                 }
 
                 Section {
@@ -73,7 +82,7 @@ struct SettingsView: View {
                 } header: {
                     Text("iCloud")
                 } footer: {
-                    Text("连接配置、端口转发规则和密钥元数据通过 iCloud 键值存储同步；密码与私钥通过 iCloud 钥匙串同步。其他设备上的变更将在下次启动时生效。")
+                    Text("连接配置和密钥元数据通过 iCloud 键值存储同步；密码与私钥通过 iCloud 钥匙串同步。其他设备上的变更将在下次启动时生效。")
                 }
             }
             .navigationTitle("设置")
@@ -89,4 +98,12 @@ struct SettingsView: View {
 
 #Preview {
     SettingsView()
+}
+
+/// SFTP「使用编辑器打开」所用的终端编辑器（与 Mac 版 SettingsTerminalEditor
+/// 保持一致）。rawValue 即远端可执行文件名，持久化在 SettingsStore。
+enum TerminalEditor: String, CaseIterable, Identifiable {
+    case vim, nvim, nano, emacs, micro, fresh
+
+    var id: String { rawValue }
 }

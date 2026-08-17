@@ -1,16 +1,16 @@
 //
 //  ICloudSyncManager.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
-//  Syncs three kinds of app data through NSUbiquitousKeyValueStore:
-//  connection configs, port-forward rules and SSH key metadata.
+//  Syncs two kinds of app data through NSUbiquitousKeyValueStore:
+//  connection configs and SSH key metadata.
 //  Secrets (passwords / private key material) are NOT synced here —
 //  they travel via iCloud Keychain separately.
 //
 //  Notes on how this interacts with the stores:
 //  - The manager reads/writes the same UserDefaults keys the stores use,
 //    because ConnectionStore has no replaceAll and must not be modified.
-//  - iOSTerminalApp calls `start()` before the stores are initialized, so
+//  - ExGhosttyApp calls `start()` before the stores are initialized, so
 //    the first-launch pull lands in UserDefaults before any store loads.
 //  - Later remote changes are written to UserDefaults and announced via
 //    `didUpdateNotification`; the stores do not observe it, so those
@@ -25,27 +25,26 @@ final class ICloudSyncManager {
     static let shared = ICloudSyncManager()
 
     /// Posted after remote changes have been written into UserDefaults.
-    static let didUpdateNotification = Notification.Name("iosterminal.iCloudSyncDidUpdate")
+    static let didUpdateNotification = Notification.Name("exghostty.ipad.iCloudSyncDidUpdate")
 
     /// Local UserDefaults keys — must stay in sync with
-    /// ConnectionStore / PortForwardStore / SSHKeyStore internals.
+    /// ConnectionStore / SSHKeyStore internals.
+    /// Renamed from the legacy "iosterminal.*" keys; LegacyDataMigration
+    /// copies old data over on first launch after the rename.
     private enum LocalKey {
-        static let connections = "iosterminal.connections"
-        static let portForwardRules = "iosterminal.portForwardRules"
-        static let sshKeys = "iosterminal.sshKeys"
+        static let connections = "exghostty.ipad.connections"
+        static let sshKeys = "exghostty.ipad.sshKeys"
     }
 
     /// Keys inside the iCloud key-value store.
     private enum CloudKey {
         static let connections = "sync.connections"
-        static let portForwardRules = "sync.portForwardRules"
         static let sshKeys = "sync.sshKeys"
     }
 
     /// (cloud key, local key) pairs, in sync order.
     private let pairs: [(cloud: String, local: String)] = [
         (CloudKey.connections, LocalKey.connections),
-        (CloudKey.portForwardRules, LocalKey.portForwardRules),
         (CloudKey.sshKeys, LocalKey.sshKeys),
     ]
 

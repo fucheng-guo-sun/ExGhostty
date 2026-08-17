@@ -1,6 +1,6 @@
 //
 //  ConnectionListView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Left sidebar of the split view: saved SSH connections grouped by `group`
 //  (ungrouped last), with add / edit / delete, port forwarding entry, and a
@@ -17,7 +17,6 @@ struct ConnectionListView: View {
     @State private var editingConnection: SSHConnectionConfig?
     @State private var isAdding = false
     @State private var showSettings = false
-    @State private var portForwardConnection: SSHConnectionConfig?
     @State private var connectionToDelete: SSHConnectionConfig?
 
     /// Non-empty groups sorted by name, then the ungrouped bucket ("未分组") last.
@@ -69,11 +68,6 @@ struct ConnectionListView: View {
         }
         .sheet(isPresented: $showSettings) {
             SettingsView()
-        }
-        .sheet(item: $portForwardConnection) { config in
-            NavigationStack {
-                PortForwardRulesView(connectionID: config.id)
-            }
         }
         .alert("删除连接", isPresented: deleteAlertBinding, presenting: connectionToDelete) { config in
             Button("删除", role: .destructive) {
@@ -181,11 +175,6 @@ struct ConnectionListView: View {
         }
         .listRowBackground(Color(white: 0.15))
         .contextMenu {
-            Button {
-                portForwardConnection = config
-            } label: {
-                Label("端口转发", systemImage: "arrow.left.arrow.right")
-            }
             Button {
                 editingConnection = config
             } label: {

@@ -1,6 +1,6 @@
 //
 //  MainSplitView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Root view: left sidebar with the SSH connection list, right side with
 //  tabbed terminals (mirrors the ExGhostty macOS layout). The sidebar can

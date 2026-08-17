@@ -1,6 +1,6 @@
 //
 //  SFTPClient.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Minimal SFTP v3 client (draft-ietf-secsh-filexfer-02) running on an
 //  NIOSSH child channel ("sftp" subsystem). Supports directory listing,

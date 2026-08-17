@@ -1,10 +1,15 @@
 //
 //  SFTPPanelView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  SFTP file manager panel: breadcrumb path bar, toolbar, remote file list
-//  with download / rename / delete actions, document-picker uploads and
-//  share-sheet downloads. Transfers show a progress bar at the bottom.
+//  with download / rename / delete actions (swipe actions + long-press
+//  context menu; tapping a file does nothing, tapping a folder enters it),
+//  document-picker file/folder uploads and share-sheet downloads. Transfers
+//  show a progress bar at the bottom. The context menu also opens files and
+//  directories in the terminal with the configured editor (SettingsStore.
+//  terminalEditor) by typing the command through TerminalBox; directories
+//  download as extracted folders (remote tar + local SWCompression unpack).
 //
 
 import SwiftUI
@@ -14,17 +19,26 @@ import UniformTypeIdentifiers
 struct SFTPPanelView: View {
     @StateObject private var viewModel: SFTPViewModel
 
+    /// Live terminal controller, used to "type" the editor command into the
+    /// terminal for the open-with-editor actions.
+    private let terminalBox: TerminalBox
+    /// Switches the session page back to the terminal panel.
+    private let onOpenInTerminal: () -> Void
+
     @State private var showNewFolderAlert = false
     @State private var newFolderName = ""
     @State private var renamingItem: SFTPItem?
     @State private var renameText = ""
     @State private var deletingItem: SFTPItem?
-    @State private var actionItem: SFTPItem?
+    @State private var freshInstallPendingItem: SFTPItem?
     @State private var showDocumentPicker = false
+    @State private var showFolderPicker = false
     @State private var shareURL: URL?
 
-    init(session: SSHSession) {
+    init(session: SSHSession, terminalBox: TerminalBox, onOpenInTerminal: @escaping () -> Void) {
         _viewModel = StateObject(wrappedValue: SFTPViewModel(session: session))
+        self.terminalBox = terminalBox
+        self.onOpenInTerminal = onOpenInTerminal
     }
 
     var body: some View {
@@ -80,32 +94,26 @@ struct SFTPPanelView: View {
         } message: {
             Text(viewModel.errorMessage ?? "")
         }
-        .confirmationDialog(
-            actionItem?.name ?? "",
-            isPresented: actionItemBinding,
-            titleVisibility: .visible
-        ) {
-            if let item = actionItem {
-                Button("下载") {
-                    actionItem = nil
-                    downloadAndShare(item)
-                }
-                Button("重命名") {
-                    actionItem = nil
-                    renameText = item.name
-                    renamingItem = item
-                }
-                Button("删除", role: .destructive) {
-                    actionItem = nil
-                    deletingItem = item
-                }
-                Button("取消", role: .cancel) { actionItem = nil }
+        .alert("安装 fresh", isPresented: freshInstallBinding) {
+            Button("取消", role: .cancel) { freshInstallPendingItem = nil }
+            Button("安装") {
+                freshInstallPendingItem = nil
+                installFresh()
             }
+        } message: {
+            Text("远端未安装 fresh 编辑器。要在终端里执行安装脚本吗？")
         }
         .sheet(isPresented: $showDocumentPicker) {
-            DocumentPicker { url in
+            DocumentPicker(contentTypes: [.item], asCopy: true) { url in
                 guard let url else { return }
                 Task { await uploadPickedFile(url) }
+            }
+            .ignoresSafeArea()
+        }
+        .sheet(isPresented: $showFolderPicker) {
+            DocumentPicker(contentTypes: [.folder], asCopy: false) { url in
+                guard let url else { return }
+                Task { await uploadPickedFolder(url) }
             }
             .ignoresSafeArea()
         }
@@ -215,6 +223,10 @@ struct SFTPPanelView: View {
                 showDocumentPicker = true
             }
 
+            toolbarButton(icon: "square.and.arrow.up.on.square", help: "上传目录") {
+                showFolderPicker = true
+            }
+
             Spacer()
 
             if viewModel.isBusy {
@@ -253,7 +265,13 @@ struct SFTPPanelView: View {
                 ForEach(viewModel.visibleItems) { item in
                     fileRow(item)
                         .contentShape(Rectangle())
-                        .onTapGesture { handleTap(item) }
+                        // Tap navigates into directories only; file actions
+                        // live in the swipe actions and the long-press menu.
+                        .onTapGesture {
+                            if item.isDirectory {
+                                viewModel.navigate(to: item.path)
+                            }
+                        }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
                             Button(role: .destructive) {
                                 deletingItem = item
@@ -277,11 +295,27 @@ struct SFTPPanelView: View {
                             }
                         }
                         .contextMenu {
-                            if !item.isDirectory {
+                            if item.isDirectory {
+                                Button {
+                                    downloadDirectoryAndShare(item)
+                                } label: {
+                                    Label("下载目录", systemImage: "arrow.down.circle")
+                                }
+                                Button {
+                                    openWithEditor(item)
+                                } label: {
+                                    Label("使用 \(editorName) 打开目录", systemImage: "square.and.pencil")
+                                }
+                            } else {
                                 Button {
                                     downloadAndShare(item)
                                 } label: {
                                     Label("下载", systemImage: "arrow.down.circle")
+                                }
+                                Button {
+                                    openWithEditor(item)
+                                } label: {
+                                    Label("使用 \(editorName) 打开", systemImage: "square.and.pencil")
                                 }
                             }
                             Button {
@@ -382,12 +416,10 @@ struct SFTPPanelView: View {
 
     // MARK: - Actions
 
-    private func handleTap(_ item: SFTPItem) {
-        if item.isDirectory {
-            viewModel.navigate(to: item.path)
-        } else {
-            actionItem = item
-        }
+    /// The configured terminal editor name, shown in the context menu and
+    /// sent to the terminal by the open-with-editor actions.
+    private var editorName: String {
+        SettingsStore.shared.terminalEditor
     }
 
     private func downloadAndShare(_ item: SFTPItem) {
@@ -403,6 +435,58 @@ struct SFTPPanelView: View {
         }
     }
 
+    private func downloadDirectoryAndShare(_ item: SFTPItem) {
+        Task {
+            do {
+                let localURL = try await viewModel.downloadDirectory(item)
+                shareURL = localURL
+            } catch {
+                if !Task.isCancelled {
+                    viewModel.errorMessage = error.localizedDescription
+                }
+            }
+        }
+    }
+
+    /// Opens the file / directory in the terminal with the configured editor.
+    /// fresh needs an install check first (mirrors the Mac version): if it is
+    /// missing, an alert offers to run the install script in the terminal.
+    private func openWithEditor(_ item: SFTPItem) {
+        guard editorName == "fresh" else {
+            sendEditorCommand(item)
+            return
+        }
+        Task {
+            if await viewModel.isEditorInstalled("fresh") {
+                sendEditorCommand(item)
+            } else {
+                freshInstallPendingItem = item
+            }
+        }
+    }
+
+    /// Types "<editor> <path>" into the terminal and switches to it.
+    private func sendEditorCommand(_ item: SFTPItem) {
+        guard let terminal = terminalBox.terminalView else {
+            viewModel.errorMessage = "终端不可用"
+            return
+        }
+        terminal.sendText("\(editorName) \(SFTPViewModel.shellQuote(item.path))")
+        terminal.sendText("\r")
+        onOpenInTerminal()
+    }
+
+    /// Runs the fresh install script in the terminal (after user confirmation).
+    private func installFresh() {
+        guard let terminal = terminalBox.terminalView else {
+            viewModel.errorMessage = "终端不可用"
+            return
+        }
+        terminal.sendText("curl https://raw.githubusercontent.com/sinelaw/fresh/refs/heads/master/scripts/install.sh | sh")
+        terminal.sendText("\r")
+        onOpenInTerminal()
+    }
+
     private func uploadPickedFile(_ url: URL) async {
         // Copy the security-scoped pick into our temp directory first so the
         // upload does not depend on the picker keeping the file alive.
@@ -416,6 +500,21 @@ struct SFTPPanelView: View {
             try FileManager.default.copyItem(at: url, to: localCopy)
             try await viewModel.upload(localURL: localCopy)
             try? FileManager.default.removeItem(at: staging)
+        } catch {
+            if !Task.isCancelled {
+                viewModel.errorMessage = error.localizedDescription
+            }
+        }
+    }
+
+    private func uploadPickedFolder(_ url: URL) async {
+        // Folder picks are not copied (asCopy: false — folders cannot be
+        // copied by the picker); the URL is read while packing, inside the
+        // security scope's lifetime.
+        let accessing = url.startAccessingSecurityScopedResource()
+        defer { if accessing { url.stopAccessingSecurityScopedResource() } }
+        do {
+            try await viewModel.uploadDirectory(localURL: url)
         } catch {
             if !Task.isCancelled {
                 viewModel.errorMessage = error.localizedDescription
@@ -439,10 +538,10 @@ struct SFTPPanelView: View {
         )
     }
 
-    private var actionItemBinding: Binding<Bool> {
+    private var freshInstallBinding: Binding<Bool> {
         Binding(
-            get: { actionItem != nil },
-            set: { if !$0 { actionItem = nil } }
+            get: { freshInstallPendingItem != nil },
+            set: { if !$0 { freshInstallPendingItem = nil } }
         )
     }
 
@@ -461,17 +560,21 @@ struct SFTPPanelView: View {
     }
 }
 
-// MARK: - Document picker (local file upload)
+// MARK: - Document picker (local file / folder upload)
 
-/// Wraps UIDocumentPickerViewController to pick any local file (Files app,
-/// iCloud Drive, third-party providers) instead of PhotosPicker.
+/// Wraps UIDocumentPickerViewController to pick any local file or folder
+/// (Files app, iCloud Drive, third-party providers) instead of PhotosPicker.
+/// Folders must be picked with asCopy: false (the picker cannot copy them);
+/// the returned security-scoped URL is read directly while packing.
 private struct DocumentPicker: UIViewControllerRepresentable {
+    let contentTypes: [UTType]
+    let asCopy: Bool
     let onPick: (URL?) -> Void
 
     func makeCoordinator() -> Coordinator { Coordinator(onPick: onPick) }
 
     func makeUIViewController(context: Context) -> UIDocumentPickerViewController {
-        let picker = UIDocumentPickerViewController(forOpeningContentTypes: [.item], asCopy: true)
+        let picker = UIDocumentPickerViewController(forOpeningContentTypes: contentTypes, asCopy: asCopy)
         picker.allowsMultipleSelection = false
         picker.delegate = context.coordinator
         return picker

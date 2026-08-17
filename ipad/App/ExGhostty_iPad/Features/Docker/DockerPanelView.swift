@@ -1,6 +1,6 @@
 //
 //  DockerPanelView.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  Docker 管理面板：检测远程主机的 docker 可用性，按容器/镜像/卷/网络
 //  四个分类展示资源，并支持容器启停/重启/删除、查看日志、删除镜像。

@@ -1,10 +1,14 @@
 //
 //  SFTPViewModel.swift
-//  iOSTerminal
+//  ExGhostty_iPad
 //
 //  View model for the SFTP file manager panel: opens an SFTPClient on the
 //  shared SSHSession, browses directories, and performs file operations
 //  (mkdir / rename / delete / upload / download) with progress reporting.
+//  Directory downloads are packed remotely with tar into /tmp, fetched over
+//  SFTP, extracted locally via TarGzArchive (SWCompression) and cleaned up.
+//  Directory uploads go the other way: packed locally, uploaded to /tmp and
+//  extracted remotely into the current directory.
 //
 
 import Foundation
@@ -197,6 +201,61 @@ final class SFTPViewModel: ObservableObject {
         return localURL
     }
 
+    /// Downloads a remote directory as a .tar.gz: packs it with tar into the
+    /// server's /tmp (guaranteed writable, unlike the item's parent), fetches
+    /// the archive over SFTP, extracts it locally and removes both archives.
+    /// Returns the extracted directory's local URL for sharing / saving.
+    func downloadDirectory(_ item: SFTPItem) async throws -> URL {
+        guard let client else { throw SFTPError.notConnected }
+        let remoteArchive = "/tmp/exghostty-download-\(UUID().uuidString).tar.gz"
+
+        transfer = TransferProgress(title: "打包 \(item.name)…", sent: 0, total: 0)
+        let parent = Self.parentPath(of: item.path)
+        let pack = "cd \(Self.shellQuote(parent)) && tar -czf " +
+            "\(Self.shellQuote(remoteArchive)) \(Self.shellQuote(item.name))"
+        let packResult = try await session.exec(pack)
+        if let status = packResult.exitStatus, status != 0 {
+            transfer = nil
+            throw SFTPError.server(
+                code: UInt32(status),
+                message: packResult.stderr.isEmpty ? "远程打包失败" : packResult.stderr
+            )
+        }
+        // Best-effort remote cleanup once the transfer below has finished.
+        defer {
+            Task {
+                _ = try? await session.exec("rm -f \(Self.shellQuote(remoteArchive))")
+            }
+        }
+
+        let total = ((try? await client.stat(remoteArchive)) ?? nil)?.size ?? 0
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sftp-download-\(UUID().uuidString)", isDirectory: true)
+        try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        let archiveURL = directory.appendingPathComponent("\(item.name).tar.gz")
+
+        transfer = TransferProgress(title: "下载 \(item.name).tar.gz", sent: 0, total: total)
+        try await client.download(remotePath: remoteArchive, to: archiveURL) { [weak self] sent in
+            Task { @MainActor in
+                self?.transfer?.sent = sent
+            }
+        }
+
+        transfer = TransferProgress(title: "解压 \(item.name)…", sent: 0, total: 0)
+        defer { transfer = nil }
+        let extractRoot = directory.appendingPathComponent("extracted", isDirectory: true)
+        try TarGzArchive.extract(archiveURL: archiveURL, into: extractRoot)
+        try? FileManager.default.removeItem(at: archiveURL)
+        return extractRoot.appendingPathComponent(item.name)
+    }
+
+    /// True when the given editor (e.g. "fresh") is on the remote PATH.
+    /// Used before sending "<editor> <path>" to the terminal.
+    func isEditorInstalled(_ editor: String) async -> Bool {
+        let result = try? await session.exec("which \(editor) 2>/dev/null || true")
+        return !(result?.stdout.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ?? true)
+    }
+
     /// Uploads a local file into the current directory.
     func upload(localURL: URL) async throws {
         guard let client else { throw SFTPError.notConnected }
@@ -212,6 +271,44 @@ final class SFTPViewModel: ObservableObject {
             Task { @MainActor in
                 self?.transfer?.sent = sent
             }
+        }
+        try await refresh()
+    }
+
+    /// Uploads a local directory into the current directory: packs it into a
+    /// .tar.gz locally, uploads the archive to the server's /tmp (guaranteed
+    /// writable) and extracts it remotely.
+    func uploadDirectory(localURL: URL) async throws {
+        guard let client else { throw SFTPError.notConnected }
+        let name = localURL.lastPathComponent
+
+        transfer = TransferProgress(title: "打包 \(name)…", sent: 0, total: 0)
+        let archiveData = try TarGzArchive.pack(directoryAt: localURL)
+        // client.upload works on file URLs, so stage the archive on disk.
+        let staging = FileManager.default.temporaryDirectory
+            .appendingPathComponent("sftp-upload-\(UUID().uuidString).tar.gz")
+        try archiveData.write(to: staging)
+        defer { try? FileManager.default.removeItem(at: staging) }
+
+        let remoteArchive = "/tmp/exghostty-upload-\(UUID().uuidString).tar.gz"
+        transfer = TransferProgress(title: "上传 \(name).tar.gz", sent: 0, total: UInt64(archiveData.count))
+        try await client.upload(localURL: staging, to: remoteArchive) { [weak self] sent in
+            Task { @MainActor in
+                self?.transfer?.sent = sent
+            }
+        }
+
+        transfer = TransferProgress(title: "解压 \(name)…", sent: 0, total: 0)
+        defer { transfer = nil }
+        let extract = "cd \(Self.shellQuote(currentPath)) && tar -xzf \(Self.shellQuote(remoteArchive))"
+        let result = try await session.exec(extract)
+        // The remote archive is temporary either way; clean it up best-effort.
+        _ = try? await session.exec("rm -f \(Self.shellQuote(remoteArchive))")
+        if let status = result.exitStatus, status != 0 {
+            throw SFTPError.server(
+                code: UInt32(status),
+                message: result.stderr.isEmpty ? "远程解压失败" : result.stderr
+            )
         }
         try await refresh()
     }
