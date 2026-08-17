@@ -2,8 +2,10 @@
 //  SystemMonitorPanelView.swift
 //  ExGhostty_iPad
 //
-//  System monitor panel: card-style dashboard showing CPU, memory,
-//  disks, network throughput and top CPU processes of the remote host.
+//  System monitor panel: card-style dashboard fed by xtop JSON streams
+//  (see SystemMonitorViewModel/XTopModels), aligned with the Mac version:
+//  CPU, three-segment memory (used/cached/free), per-mount disk usage with
+//  read/write speeds, network throughput, GPU cards and top processes.
 //
 
 import SwiftUI
@@ -19,12 +21,12 @@ struct SystemMonitorPanelView: View {
         Group {
             if viewModel.isUnsupported {
                 unsupportedView
-            } else if let errorMessage = viewModel.errorMessage, viewModel.sample == nil {
+            } else if let errorMessage = viewModel.errorMessage, viewModel.latest == nil {
                 errorView(errorMessage)
-            } else if viewModel.isLoading, viewModel.sample == nil {
+            } else if viewModel.isLoading, viewModel.latest == nil {
                 loadingView
-            } else if let sample = viewModel.sample {
-                dashboard(sample)
+            } else if let latest = viewModel.latest {
+                dashboard(latest)
             } else {
                 loadingView
             }
@@ -50,12 +52,15 @@ struct SystemMonitorPanelView: View {
             Image(systemName: "exclamationmark.triangle")
                 .font(.largeTitle)
                 .foregroundStyle(.yellow)
-            Text("不支持的主机")
+            Text("未检测到 xtop")
                 .font(.headline)
-            Text("系统监控依赖 Linux 的 /proc 文件系统，\n当前主机无法提供监控数据。")
+            Text("系统监控需要在远端主机安装 xtop。")
                 .font(.subheadline)
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
+            Link("打开 xtop 项目主页", destination: URL(string: "https://github.com/rarnu/xtop")!)
+                .font(.subheadline)
+                .tint(.teal)
             Button("重试") { viewModel.retry() }
                 .buttonStyle(.borderedProminent)
                 .tint(.teal)
@@ -83,17 +88,20 @@ struct SystemMonitorPanelView: View {
 
     // MARK: - 仪表盘
 
-    private func dashboard(_ sample: SystemMonitorSample) -> some View {
+    private func dashboard(_ output: XTopOutput) -> some View {
         ScrollView {
             VStack(spacing: 12) {
-                cpuCard(sample)
-                memoryCard(sample)
-                if !sample.disks.isEmpty {
-                    diskCard(sample)
+                cpuCard(output)
+                memoryCard(output)
+                if let mounts = output.disk?.Mounts, !mounts.isEmpty {
+                    diskCard(mounts)
                 }
-                networkCard(sample)
-                if !sample.topProcesses.isEmpty {
-                    processCard(sample)
+                if let net = output.net {
+                    networkCard(net)
+                }
+                gpuCard(output)
+                if let proc = output.proc {
+                    processCard(proc)
                 }
             }
             .padding(12)
@@ -102,27 +110,24 @@ struct SystemMonitorPanelView: View {
 
     // MARK: - CPU
 
-    private func cpuCard(_ sample: SystemMonitorSample) -> some View {
+    private func cpuCard(_ output: XTopOutput) -> some View {
         MonitorCard(title: "CPU", systemImage: "cpu") {
-            HStack(alignment: .center, spacing: 16) {
-                ProgressRing(value: sample.cpuOverall / 100.0,
-                             color: Self.usageColor(sample.cpuOverall)) {
-                    Text(Self.percentText(sample.cpuOverall))
-                        .font(.title3.weight(.semibold))
-                        .monospacedDigit()
-                }
-                .frame(width: 84, height: 84)
+            if let cpu = output.cpu {
+                HStack(alignment: .center, spacing: 16) {
+                    ProgressRing(value: cpu.Overall / 100.0,
+                                 color: Self.usageColor(cpu.Overall)) {
+                        Text(cpu.Overall.formattedPercent())
+                            .font(.title3.weight(.semibold))
+                            .monospacedDigit()
+                    }
+                    .frame(width: 84, height: 84)
 
-                VStack(alignment: .leading, spacing: 6) {
-                    Text("负载 \(Self.loadText(sample.load1)) / \(Self.loadText(sample.load5)) / \(Self.loadText(sample.load15))")
-                        .font(.caption)
-                        .monospacedDigit()
-                        .foregroundStyle(.secondary)
-                    if !sample.cpuPerCore.isEmpty {
-                        LazyVGrid(columns: [GridItem(.flexible(), spacing: 8), GridItem(.flexible(), spacing: 8)],
+                    if !cpu.PerCore.isEmpty {
+                        // 一行 8 个核。
+                        LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 8), count: 8),
                                   alignment: .leading,
                                   spacing: 4) {
-                            ForEach(Array(sample.cpuPerCore.enumerated()), id: \.offset) { index, usage in
+                            ForEach(Array(cpu.PerCore.enumerated()), id: \.offset) { index, usage in
                                 HStack(spacing: 6) {
                                     Text("\(index)")
                                         .font(.caption2)
@@ -133,75 +138,87 @@ struct SystemMonitorPanelView: View {
                                 }
                             }
                         }
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                 }
-                .frame(maxWidth: .infinity, alignment: .leading)
+            } else {
+                EmptyDataHint()
             }
         }
     }
 
     // MARK: - 内存
 
-    private func memoryCard(_ sample: SystemMonitorSample) -> some View {
+    private func memoryCard(_ output: XTopOutput) -> some View {
         MonitorCard(title: "内存", systemImage: "memorychip") {
-            VStack(alignment: .leading, spacing: 10) {
-                let memPercent = sample.memTotal > 0
-                    ? Double(sample.memUsed) * 100.0 / Double(sample.memTotal)
-                    : 0
-                VStack(alignment: .leading, spacing: 4) {
+            if let mem = output.mem {
+                VStack(alignment: .leading, spacing: 8) {
                     HStack {
-                        Text("内存")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                         Spacer()
-                        Text("\(sample.memUsed.formattedBytes()) / \(sample.memTotal.formattedBytes())")
+                        Text("\(mem.Used.formattedBytes()) / \(mem.Total.formattedBytes())")
                             .font(.caption)
                             .monospacedDigit()
                             .foregroundStyle(.secondary)
                     }
-                    UsageBar(value: memPercent / 100.0, color: Self.usageColor(memPercent))
-                }
-
-                if sample.swapTotal > 0 {
-                    let swapPercent = Double(sample.swapUsed) * 100.0 / Double(sample.swapTotal)
-                    VStack(alignment: .leading, spacing: 4) {
-                        HStack {
-                            Text("Swap")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                            Spacer()
-                            Text("\(sample.swapUsed.formattedBytes()) / \(sample.swapTotal.formattedBytes())")
-                                .font(.caption)
-                                .monospacedDigit()
-                                .foregroundStyle(.secondary)
+                    // 三段式：已用 / 已缓存 / 空余（对齐 Mac 版）。
+                    GeometryReader { geometry in
+                        let total = mem.Total > 0 ? Double(mem.Total) : 1
+                        let usedWidth = geometry.size.width * CGFloat(Double(mem.Used) / total)
+                        let cachedWidth = geometry.size.width * CGFloat(Double(mem.Cached) / total)
+                        ZStack(alignment: .leading) {
+                            Capsule().fill(Color(white: 0.25))
+                            Capsule()
+                                .fill(Color.orange)
+                                .frame(width: usedWidth)
+                            Capsule()
+                                .fill(Color.green)
+                                .frame(width: cachedWidth)
+                                .offset(x: usedWidth)
                         }
-                        UsageBar(value: swapPercent / 100.0, color: Self.usageColor(swapPercent))
+                    }
+                    .frame(height: 10)
+
+                    HStack(spacing: 16) {
+                        MemoryLegendItem(color: .orange, label: "已用", value: mem.Used.formattedBytes())
+                        MemoryLegendItem(color: .green, label: "缓存", value: mem.Cached.formattedBytes())
+                        MemoryLegendItem(color: Color(white: 0.35), label: "空闲", value: mem.Free.formattedBytes())
                     }
                 }
+            } else {
+                EmptyDataHint()
             }
         }
     }
 
     // MARK: - 磁盘
 
-    private func diskCard(_ sample: SystemMonitorSample) -> some View {
+    private func diskCard(_ mounts: [XTopDiskMount]) -> some View {
         MonitorCard(title: "磁盘", systemImage: "internaldrive") {
-            VStack(alignment: .leading, spacing: 10) {
-                ForEach(sample.disks) { disk in
+            VStack(alignment: .leading, spacing: 12) {
+                ForEach(mounts) { mount in
                     VStack(alignment: .leading, spacing: 4) {
                         HStack {
-                            Text(disk.mountPoint)
+                            Text(mount.Mountpoint)
                                 .font(.caption.monospaced())
                                 .lineLimit(1)
                                 .truncationMode(.middle)
                             Spacer()
-                            Text("\(disk.used.formattedBytes()) / \(disk.total.formattedBytes()) (\(Self.percentText(disk.usedPercent)))")
+                            Text("\(mount.Used.formattedBytes()) / \(mount.Total.formattedBytes()) (\(mount.UsedPercent.formattedPercent()))")
                                 .font(.caption)
                                 .monospacedDigit()
                                 .foregroundStyle(.secondary)
                         }
-                        UsageBar(value: disk.usedPercent / 100.0,
-                                 color: Self.usageColor(disk.usedPercent))
+                        UsageBar(value: mount.UsedPercent / 100.0,
+                                 color: Self.usageColor(mount.UsedPercent))
+                        HStack(spacing: 12) {
+                            Label(mount.ReadPerSec.formattedBytesPerSecond(), systemImage: "arrow.down.circle")
+                                .font(.caption2)
+                                .foregroundStyle(.green)
+                            Label(mount.WritePerSec.formattedBytesPerSecond(), systemImage: "arrow.up.circle")
+                                .font(.caption2)
+                                .foregroundStyle(.orange)
+                            Spacer()
+                        }
                     }
                 }
             }
@@ -210,58 +227,141 @@ struct SystemMonitorPanelView: View {
 
     // MARK: - 网络
 
-    private func networkCard(_ sample: SystemMonitorSample) -> some View {
+    private func networkCard(_ net: XTopNet) -> some View {
         MonitorCard(title: "网络", systemImage: "network") {
-            HStack(spacing: 24) {
-                Label {
-                    Text(sample.netTxPerSec.formattedBytesPerSecond())
-                        .font(.subheadline)
-                        .monospacedDigit()
-                } icon: {
-                    Image(systemName: "arrow.up")
-                        .foregroundStyle(.teal)
+            VStack(alignment: .leading, spacing: 8) {
+                HStack(spacing: 24) {
+                    Label {
+                        Text(net.UploadPerSec.formattedBytesPerSecond())
+                            .font(.subheadline)
+                            .monospacedDigit()
+                    } icon: {
+                        Image(systemName: "arrow.up")
+                            .foregroundStyle(.teal)
+                    }
+                    Label {
+                        Text(net.DownloadPerSec.formattedBytesPerSecond())
+                            .font(.subheadline)
+                            .monospacedDigit()
+                    } icon: {
+                        Image(systemName: "arrow.down")
+                            .foregroundStyle(.green)
+                    }
+                    Spacer()
                 }
-                Label {
-                    Text(sample.netRxPerSec.formattedBytesPerSecond())
-                        .font(.subheadline)
-                        .monospacedDigit()
-                } icon: {
-                    Image(systemName: "arrow.down")
-                        .foregroundStyle(.green)
+
+                if let topProcs = net.TopProcs, !topProcs.isEmpty {
+                    VStack(alignment: .leading, spacing: 4) {
+                        ForEach(topProcs.prefix(5)) { proc in
+                            HStack {
+                                Text(proc.Command)
+                                    .font(.caption.monospaced())
+                                    .lineLimit(1)
+                                Spacer()
+                                Text("↑ \(proc.UploadPerSec.formattedBytesPerSecond())  ↓ \(proc.DownloadPerSec.formattedBytesPerSecond())")
+                                    .font(.caption2)
+                                    .monospacedDigit()
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
                 }
-                Spacer()
             }
         }
     }
 
+    // MARK: - GPU
+
+    private func gpuCard(_ output: XTopOutput) -> some View {
+        MonitorCard(title: "GPU", systemImage: "rectangle.fill.on.rectangle.fill") {
+            if let gpu = output.gpu {
+                if gpu.Available, let cards = gpu.Cards, !cards.isEmpty {
+                    VStack(alignment: .leading, spacing: 12) {
+                        ForEach(Array(cards.enumerated()), id: \.offset) { index, card in
+                            VStack(alignment: .leading, spacing: 8) {
+                                Text(cards.count > 1 ? "[#\(index + 1)] \(card.Name)" : card.Name)
+                                    .font(.caption.weight(.medium))
+                                    .lineLimit(1)
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack {
+                                        Text("GPU 负载")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text(card.LoadPct.formattedPercent())
+                                            .font(.caption2)
+                                            .monospacedDigit()
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    UsageBar(value: card.LoadPct / 100.0, color: .purple)
+                                }
+
+                                VStack(alignment: .leading, spacing: 2) {
+                                    HStack {
+                                        Text("显存")
+                                            .font(.caption2)
+                                            .foregroundStyle(.secondary)
+                                        Spacer()
+                                        Text(gpuMemText(for: card))
+                                            .font(.caption2)
+                                            .monospacedDigit()
+                                            .foregroundStyle(.secondary)
+                                    }
+                                    if card.MemTotal > 0 {
+                                        UsageBar(
+                                            value: Double(card.MemUsed) / Double(card.MemTotal),
+                                            color: .blue
+                                        )
+                                    }
+                                }
+
+                                HStack(spacing: 12) {
+                                    Text(card.TempC.formattedCelsius())
+                                        .font(.caption2)
+                                        .monospacedDigit()
+                                        .foregroundStyle(.secondary)
+                                    Text(card.PowerW.formattedWatts())
+                                        .font(.caption2)
+                                        .monospacedDigit()
+                                        .foregroundStyle(.secondary)
+                                    Spacer()
+                                }
+                            }
+                        }
+                    }
+                } else {
+                    Text(gpu.Message ?? "GPU 不可用")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            } else {
+                EmptyDataHint()
+            }
+        }
+    }
+
+    private func gpuMemText(for card: XTopGPUCard) -> String {
+        guard card.MemTotal > 0 else {
+            return card.MemUsed > 0 ? card.MemUsed.formattedBytes() : "N/A"
+        }
+        let percent = Double(card.MemUsed) / Double(card.MemTotal) * 100
+        return "\(card.MemUsed.formattedBytes()) / \(card.MemTotal.formattedBytes()) (\(String(format: "%.1f", percent))%)"
+    }
+
     // MARK: - 进程
 
-    private func processCard(_ sample: SystemMonitorSample) -> some View {
-        MonitorCard(title: "Top 进程（CPU）", systemImage: "list.number") {
-            VStack(spacing: 6) {
-                ForEach(sample.topProcesses) { process in
-                    HStack(spacing: 8) {
-                        Text("\(process.pid)")
-                            .font(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(.tertiary)
-                            .frame(width: 56, alignment: .trailing)
-                        Text(process.command)
-                            .font(.caption.monospaced())
-                            .lineLimit(1)
-                            .truncationMode(.tail)
-                        Spacer()
-                        Text(Self.percentText(process.cpuPercent))
-                            .font(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(Self.usageColor(process.cpuPercent))
-                            .frame(width: 56, alignment: .trailing)
-                        Text(Self.percentText(process.memPercent))
-                            .font(.caption)
-                            .monospacedDigit()
-                            .foregroundStyle(.secondary)
-                            .frame(width: 56, alignment: .trailing)
-                    }
+    private func processCard(_ proc: XTopProc) -> some View {
+        MonitorCard(title: "进程（共 \(proc.Total) 个）", systemImage: "list.number") {
+            VStack(alignment: .leading, spacing: 10) {
+                if let topCPU = proc.TopCPU, !topCPU.isEmpty {
+                    ProcessSection(title: "Top CPU", procs: topCPU) { $0.CPU.formattedPercent() }
+                }
+                if let topMem = proc.TopMem, !topMem.isEmpty {
+                    ProcessSection(title: "Top 内存", procs: topMem) { $0.MemRSS.formattedBytes() }
+                }
+                if let topDisk = proc.TopDisk, !topDisk.isEmpty {
+                    ProcessSection(title: "Top 磁盘", procs: topDisk) { $0.CPU.formattedPercent() }
                 }
             }
         }
@@ -273,14 +373,6 @@ struct SystemMonitorPanelView: View {
         if percent < 50 { return .teal }
         if percent < 80 { return .yellow }
         return .red
-    }
-
-    private static func percentText(_ value: Double) -> String {
-        String(format: "%.1f%%", value)
-    }
-
-    private static func loadText(_ value: Double) -> String {
-        String(format: "%.2f", value)
     }
 }
 
@@ -341,6 +433,70 @@ private struct ProgressRing<Content: View>: View {
                 .rotationEffect(.degrees(-90))
                 .animation(.easeInOut(duration: 0.3), value: value)
             content()
+        }
+    }
+}
+
+/// 数据尚未到达时的占位提示。
+private struct EmptyDataHint: View {
+    var body: some View {
+        Text("等待数据…")
+            .font(.caption)
+            .foregroundStyle(.secondary)
+            .frame(maxWidth: .infinity, alignment: .center)
+            .padding(.vertical, 8)
+    }
+}
+
+/// 内存图例项：色点 + 名称 + 数值。
+private struct MemoryLegendItem: View {
+    let color: Color
+    let label: String
+    let value: String
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Circle()
+                .fill(color)
+                .frame(width: 6, height: 6)
+            Text(label)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Text(value)
+                .font(.caption2)
+                .monospacedDigit()
+        }
+    }
+}
+
+/// 进程分组（Top CPU / Top 内存 / Top 磁盘）。
+private struct ProcessSection: View {
+    let title: String
+    let procs: [XTopProcInfo]
+    let valueFormatter: (XTopProcInfo) -> String
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(title)
+                .font(.caption2.weight(.medium))
+                .foregroundStyle(.secondary)
+            ForEach(procs.prefix(5)) { proc in
+                HStack(spacing: 8) {
+                    Text("\(proc.PID)")
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .foregroundStyle(.tertiary)
+                        .frame(width: 48, alignment: .trailing)
+                    Text(proc.Command)
+                        .font(.caption.monospaced())
+                        .lineLimit(1)
+                    Spacer()
+                    Text(valueFormatter(proc))
+                        .font(.caption2)
+                        .monospacedDigit()
+                        .foregroundStyle(.secondary)
+                }
+            }
         }
     }
 }

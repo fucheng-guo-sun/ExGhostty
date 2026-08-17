@@ -460,6 +460,8 @@ final class SSHSession: ObservableObject {
     }
 
     /// Runs a command and yields stdout chunks as they arrive, until the channel closes.
+    /// When the consumer stops iterating (task cancelled / stream finished),
+    /// the channel is closed so the remote process does not keep running.
     func execStream(_ command: String) -> AsyncThrowingStream<Data, Error> {
         let command = SSHIdentity.wrap(
             remoteCommand: command,
@@ -473,8 +475,15 @@ final class SSHSession: ObservableObject {
                         StreamingExecHandler(command: command, continuation: continuation)
                     )
                 }
-            }.whenFailure { error in
-                continuation.finish(throwing: error)
+            }.whenComplete { result in
+                switch result {
+                case .failure(let error):
+                    continuation.finish(throwing: error)
+                case .success(let channel):
+                    continuation.onTermination = { _ in
+                        channel.close(promise: nil)
+                    }
+                }
             }
         }
     }

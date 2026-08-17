@@ -27,7 +27,7 @@
 - **Tab/会话**：`Features/Session/TerminalTabStore.swift` — `TerminalTab` 持有 `SSHSession` + `TerminalBox`（弱引用终端控制器）。所有 tab 用 `ZStack + opacity` 常驻视图树保活，切换不销毁会话——新增面板/页面时必须保持这一模式。
 - **SSH 层**（`SSH/`）：`SSHSession`（NIOSSH，`MultiThreadedEventLoopGroup(3)`，子 channel 承载 shell/exec/sftp）。认证 `FlexibleAuthDelegate`（私钥优先、回落密码；**不支持 keyboard-interactive、不支持加密私钥**）。跳板机 = `openNestedTransport`（跳板机 directTCPIP 上二次握手，经 `SSHDataCodec` 做字节转换）。`SFTPClient` 是手写 SFTP v3。**端口转发功能已从 iPad 版移除**（用户需求，Mac 版仍有）。
 - **终端接入**：`SSH/SshTerminalView.swift` — `class SshTerminalView: TerminalView, TerminalViewDelegate`（用 UIKit 的 `TerminalView`，**不是** `SwiftUITerminalView`，后者仅 DEBUG 内部调试用）。数据流：下行 `channelRead` → 1KB 切片 → 主线程 `feed(byteArray:)`；上行 `TerminalViewDelegate.send` → `writeAndFlush`；resize → `WindowChangeRequest`。宿主 `TerminalHostViewController`（UIKit 容器 + `keyboardLayoutGuide`），经 `TerminalSessionView` 内 `UIViewControllerRepresentable` 桥接进 SwiftUI。
-- **功能面板**（`Features/`，每个目录一个域）：`Session`（标签页）、`Home`（连接列表/编辑）、`Settings`、`Keys`（私钥管理，自研 OpenSSH/PEM 解析）、`SFTP`、`SessionReuse`（tmux/rmux/zellij）、`PortUsage`、`Docker`、`SystemMonitor`（读远程 /proc，仅 Linux）、`AIAssistant`（OpenAI 兼容 SSE 流式）。所有面板注入同一个 `SSHSession`，通过 `session.exec()` / `execStream()` 跑远程命令；需要"往终端打字"的面板额外拿 `TerminalBox`。
+- **功能面板**（`Features/`，每个目录一个域）：`Session`（标签页）、`Home`（连接列表/编辑）、`Settings`、`Keys`（私钥管理，自研 OpenSSH/PEM 解析）、`SFTP`、`SessionReuse`（tmux/rmux/zellij）、`PortUsage`、`Docker`、`SystemMonitor`（远端 `xtop --all --json --stream` 流式采集，含 GPU/磁盘读写，对齐 Mac 版）、`AIAssistant`（OpenAI 兼容 SSE 流式）。所有面板注入同一个 `SSHSession`，通过 `session.exec()` / `execStream()` 跑远程命令；需要"往终端打字"的面板额外拿 `TerminalBox`。
 
 ## 代码约定
 
