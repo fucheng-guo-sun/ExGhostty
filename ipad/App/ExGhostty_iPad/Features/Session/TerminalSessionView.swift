@@ -74,6 +74,9 @@ struct TerminalSessionView: View {
             content
         }
         .background(Color.black)
+        // 终端要贴到屏幕底边（Home 指示条区域也要覆盖）；键盘避让由
+        // TerminalHostViewController 的底部约束负责。
+        .ignoresSafeArea(.container, edges: .bottom)
         .task {
             await tab.connectIfNeeded()
         }

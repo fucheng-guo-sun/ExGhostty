@@ -3,6 +3,10 @@
 //  ExGhostty_iPad
 //
 //  UIKit container hosting a full-size SshTerminalView with keyboard handling.
+//  The terminal fills the whole view (bottom edge included); software-keyboard
+//  avoidance is done by adjusting the bottom constraint from
+//  keyboardWillChangeFrameNotification — keyboardLayoutGuide would leave a
+//  safe-area-sized blank strip at the bottom when no keyboard is up.
 //  Applies the terminal font / cursor / theme settings (SettingsStore) and
 //  re-applies them live when they change — each sink replays the current
 //  value immediately, so no separate initial-apply step exists.
@@ -18,6 +22,9 @@ final class TerminalHostViewController: UIViewController {
     private var fontCancellable: AnyCancellable?
     private var cursorCancellable: AnyCancellable?
     private var themeCancellable: AnyCancellable?
+    /// 终端到底部的约束：无键盘时贴满屏幕底边，键盘弹出时抬高避让
+    /// （keyboardLayoutGuide 在键盘隐藏时会停在安全区上沿，底部留一条空白）。
+    private var bottomConstraint: NSLayoutConstraint?
 
     var hostedTerminalView: SshTerminalView { terminalView }
 
@@ -34,11 +41,16 @@ final class TerminalHostViewController: UIViewController {
         terminalView.leftAnchor.constraint(equalTo: view.leftAnchor).isActive = true
         terminalView.rightAnchor.constraint(equalTo: view.rightAnchor).isActive = true
 
-        if #available(iOS 15.0, *) {
-            view.keyboardLayoutGuide.topAnchor.constraint(equalTo: terminalView.bottomAnchor).isActive = true
-        } else {
-            terminalView.bottomAnchor.constraint(equalTo: view.bottomAnchor).isActive = true
-        }
+        let bottom = terminalView.bottomAnchor.constraint(equalTo: view.bottomAnchor)
+        bottom.isActive = true
+        bottomConstraint = bottom
+
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(keyboardWillChangeFrame(_:)),
+            name: UIResponder.keyboardWillChangeFrameNotification,
+            object: nil
+        )
 
         // 初始应用 + 跟随设置变更（sink 会立即回放当前值）。
         let settings = SettingsStore.shared
@@ -85,6 +97,18 @@ final class TerminalHostViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         terminalView.becomeFirstResponder()
+    }
+
+    @objc private func keyboardWillChangeFrame(_ note: Notification) {
+        guard let info = note.userInfo,
+              let endFrame = info[UIResponder.keyboardFrameEndUserInfoKey] as? CGRect else { return }
+        let endInView = view.convert(endFrame, from: nil)
+        let overlap = max(0, view.bounds.maxY - endInView.minY)
+        let duration = info[UIResponder.keyboardAnimationDurationUserInfoKey] as? Double ?? 0.25
+        bottomConstraint?.constant = -overlap
+        UIView.animate(withDuration: duration) {
+            self.view.layoutIfNeeded()
+        }
     }
 
     override func viewWillDisappear(_ animated: Bool) {

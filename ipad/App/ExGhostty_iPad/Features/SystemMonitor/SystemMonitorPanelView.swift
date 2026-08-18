@@ -485,7 +485,7 @@ private struct ProcessSection: View {
                 .foregroundStyle(.secondary)
             ForEach(procs.prefix(5)) { proc in
                 HStack(spacing: 8) {
-                    Text("\(proc.PID)")
+                    Text(verbatim: "\(proc.PID)")
                         .font(.caption2)
                         .monospacedDigit()
                         .foregroundStyle(.tertiary)

@@ -228,7 +228,9 @@ private struct ConnectionRow: View {
                 Text(config.displayName)
                     .font(.system(size: 16, weight: .semibold))
                     .foregroundStyle(.primary)
-                Text("\(config.username)@\(config.host):\(config.port)")
+                // Text 的数字插值会按区域设置加千位分隔符（2222 → "2,222"），
+                // 用 verbatim 避免端口被本地化格式污染。
+                Text(verbatim: "\(config.username)@\(config.host):\(config.port)")
                     .font(.system(size: 13, design: .monospaced))
                     .foregroundStyle(.secondary)
             }
