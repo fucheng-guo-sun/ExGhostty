@@ -11,7 +11,7 @@
 import SwiftUI
 
 struct MainSplitView: View {
-    @StateObject private var tabStore = TerminalTabStore()
+    @StateObject private var tabStore = TerminalTabStore.shared
     @State private var sidebarCollapsed = false
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
 

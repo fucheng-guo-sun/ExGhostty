@@ -11,19 +11,39 @@ import Foundation
 import Combine
 
 /// One open terminal tab: a connection plus its live session state.
+/// kind == .browser 时是内置浏览器 tab（无 SSH 会话，config/session 为 nil，
+/// 由端口转发规则的「访问页面」打开）。
 final class TerminalTab: Identifiable, ObservableObject {
+    enum Kind {
+        case terminal
+        case browser
+    }
+
     let id = UUID()
-    let config: SSHConnectionConfig
-    let session: SSHSession
+    let kind: Kind
+    /// 仅 .terminal 有值（IUO：浏览器 tab 不会触碰它们）。
+    let config: SSHConnectionConfig!
+    let session: SSHSession!
+    /// 仅 .browser 有值。
+    let browserURL: URL?
+    let browserTitle: String?
     let terminalBox = TerminalBox()
 
-    var title: String { config.displayName }
+    var title: String {
+        switch kind {
+        case .terminal: return config.displayName
+        case .browser: return browserTitle ?? "Browser"
+        }
+    }
 
     private var cancellable: AnyCancellable?
 
     @MainActor
     init(config: SSHConnectionConfig) {
+        self.kind = .terminal
         self.config = config
+        self.browserURL = nil
+        self.browserTitle = nil
         let session = SessionFactory.makeSession(for: config)
         self.session = session
         // Views observing the tab still refresh when the session publishes.
@@ -32,10 +52,19 @@ final class TerminalTab: Identifiable, ObservableObject {
         }
     }
 
+    @MainActor
+    init(browserURL: URL, title: String) {
+        self.kind = .browser
+        self.config = nil
+        self.session = nil
+        self.browserURL = browserURL
+        self.browserTitle = title
+    }
+
     /// Connects on first use.
     @MainActor
     func connectIfNeeded() async {
-        guard session.state == .idle else { return }
+        guard kind == .terminal, session.state == .idle else { return }
         try? await session.connect()
     }
 
@@ -43,6 +72,7 @@ final class TerminalTab: Identifiable, ObservableObject {
     /// 错误页切回终端，新的宿主控制器自动重开 shell）。
     @MainActor
     func reconnectIfNeeded() async {
+        guard kind == .terminal else { return }
         switch session.state {
         case .failed, .closed:
             try? await session.ensureConnected()
@@ -52,23 +82,38 @@ final class TerminalTab: Identifiable, ObservableObject {
     }
 
     func disconnect() {
-        session.disconnect()
+        session?.disconnect()
     }
 }
 
 @MainActor
 final class TerminalTabStore: ObservableObject {
+    /// 单例：端口转发窗口（独立 hosting controller，拿不到 environmentObject）
+    /// 也要能开浏览器 tab。
+    static let shared = TerminalTabStore()
+
     @Published private(set) var tabs: [TerminalTab] = []
     @Published var activeTabID: UUID?
 
     /// Opens a connection in a tab; focuses the existing tab if this
     /// connection already has one.
     func open(_ config: SSHConnectionConfig) {
-        if let existing = tabs.first(where: { $0.config.id == config.id }) {
+        if let existing = tabs.first(where: { $0.config?.id == config.id }) {
             activeTabID = existing.id
             return
         }
         let tab = TerminalTab(config: config)
+        tabs.append(tab)
+        activeTabID = tab.id
+    }
+
+    /// 打开一个内置浏览器 tab（同 URL 复用已有 tab）。
+    func openBrowser(url: URL, title: String) {
+        if let existing = tabs.first(where: { $0.kind == .browser && $0.browserURL == url }) {
+            activeTabID = existing.id
+            return
+        }
+        let tab = TerminalTab(browserURL: url, title: title)
         tabs.append(tab)
         activeTabID = tab.id
     }
@@ -84,7 +129,7 @@ final class TerminalTabStore: ObservableObject {
 
     /// Closes any tabs belonging to a deleted connection.
     func closeTabs(for configID: UUID) {
-        for tab in tabs where tab.config.id == configID {
+        for tab in tabs where tab.config?.id == configID {
             close(tab)
         }
     }

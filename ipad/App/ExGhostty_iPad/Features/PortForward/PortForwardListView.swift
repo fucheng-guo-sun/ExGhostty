@@ -128,6 +128,23 @@ struct PortForwardListView: View {
                 }
             }
             Spacer()
+            // 仅本地转发（-L）运行中可访问：URL 即 http://127.0.0.1:监听端口。
+            // -R 方向相反、-D 是 SOCKS 代理，都没有可直接访问的页面。
+            if rule.type == .local, case .running = store.status[rule.id] {
+                Button {
+                    guard let url = URL(string: "http://127.0.0.1:\(rule.localListenPort)/") else { return }
+                    TerminalTabStore.shared.openBrowser(url: url, title: rule.name)
+                    dismiss()
+                } label: {
+                    Label(L("访问页面"), systemImage: "safari")
+                        .font(.system(size: 12, weight: .medium))
+                        .padding(.horizontal, 10)
+                        .padding(.vertical, 6)
+                        .background(Color.teal.opacity(0.15), in: Capsule())
+                        .foregroundStyle(.teal)
+                }
+                .buttonStyle(.plain)
+            }
             Button {
                 store.toggle(rule)
             } label: {

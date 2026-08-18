@@ -4,8 +4,9 @@
 //
 //  Right side of the split view: a tab bar plus the tab contents. Every tab
 //  stays in the view hierarchy (hidden with opacity) so its terminal session
-//  keeps running while another tab is active. With no tabs open, an intro
-//  view is shown instead.
+//  keeps running while another tab is active. Tabs come in two kinds: SSH
+//  terminals and in-app browser tabs (opened from port-forward rules).
+//  With no tabs open, an intro view is shown instead.
 //
 
 import SwiftUI
@@ -22,9 +23,18 @@ struct TerminalTabContainerView: View {
                 Divider()
                 ZStack {
                     ForEach(tabStore.tabs) { tab in
-                        TerminalSessionView(tab: tab)
-                            .opacity(tab.id == tabStore.activeTabID ? 1 : 0)
-                            .allowsHitTesting(tab.id == tabStore.activeTabID)
+                        Group {
+                            switch tab.kind {
+                            case .terminal:
+                                TerminalSessionView(tab: tab)
+                            case .browser:
+                                if let url = tab.browserURL {
+                                    BrowserTabView(url: url)
+                                }
+                            }
+                        }
+                        .opacity(tab.id == tabStore.activeTabID ? 1 : 0)
+                        .allowsHitTesting(tab.id == tabStore.activeTabID)
                     }
                 }
             }
@@ -60,7 +70,7 @@ private struct TabButton: View {
 
     var body: some View {
         HStack(spacing: 6) {
-            Image(systemName: "terminal")
+            Image(systemName: tab.kind == .browser ? "globe" : "terminal")
                 .font(.system(size: 11))
             Text(tab.title)
                 .font(.system(size: 12, weight: .medium))

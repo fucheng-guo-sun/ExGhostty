@@ -7,8 +7,11 @@
 //  directTCPIP child channel on the rule's dedicated SSHSession and the
 //  two channels are glued. Remote (-R) issues a tcpip-forward global
 //  request and glues each inbound forwardedTCPIP channel to the local
-//  service. Reconnect semantics mirror the Mac version: fixed 3s delay,
-//  give up after 5 consecutive failures, manual stop never reconnects.
+//  service. The glue does backpressure: autoRead is off on both sides,
+//  and each side only issues the next read() when its write to the peer
+//  completes (at most one chunk in flight per direction). Reconnect
+//  semantics mirror the Mac version: fixed 3s delay, give up after 5
+//  consecutive failures, manual stop never reconnects.
 //
 
 import Foundation
@@ -17,30 +20,46 @@ import NIOPosix
 import NIOSSH
 import Combine
 
-// MARK: - 双向粘接（含对端未就绪前的缓冲与关闭传播）
+// MARK: - 双向粘接（含关闭传播与背压）
 
-/// SSH 侧：读 SSHChannelData 写给对端 TCP；对端未就绪先缓冲。
+/// 背压模型：两侧 channel 都关 autoRead，handler 持有自己的 context；
+/// 每收到一份数据写给对端，**写完（write 完成）才向本侧要下一份**
+/// （context.read()），任意时刻每个方向最多一份在途数据。attach 时
+/// 发出首次 read 启动流水线。
+
+/// SSH 侧：读 SSHChannelData 写给对端 TCP。
 private final class SSHSideRelayHandler: ChannelInboundHandler {
     typealias InboundIn = SSHChannelData
 
     private var peer: Channel?
-    private var pending: [ByteBuffer] = []
+    private var context: ChannelHandlerContext?
+
+    func handlerAdded(context: ChannelHandlerContext) {
+        self.context = context
+    }
+
+    func handlerRemoved(context: ChannelHandlerContext) {
+        self.context = nil
+        peer = nil
+    }
 
     func attach(peer: Channel) {
         self.peer = peer
-        for buffer in pending {
-            peer.writeAndFlush(buffer, promise: nil)
-        }
-        pending.removeAll()
+        context?.read()
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let payload = unwrapInboundIn(data)
-        guard case .byteBuffer(let buffer) = payload.data, buffer.readableBytes > 0 else { return }
-        if let peer {
-            peer.writeAndFlush(buffer, promise: nil)
-        } else {
-            pending.append(buffer)
+        guard case .byteBuffer(let buffer) = payload.data, buffer.readableBytes > 0 else {
+            context.read()
+            return
+        }
+        peer?.writeAndFlush(buffer).whenComplete { [weak self] _ in
+            // 写完成回调运行在对端（写入方）的 EL 上，read 必须跳回本侧 EL。
+            guard let self, let context = self.context else { return }
+            context.eventLoop.execute {
+                context.read()
+            }
         }
     }
 
@@ -60,27 +79,31 @@ private final class TCPSideRelayHandler: ChannelInboundHandler {
     typealias InboundIn = ByteBuffer
 
     private var peer: Channel?
-    private var pending: [ByteBuffer] = []
+    private var context: ChannelHandlerContext?
+
+    func handlerAdded(context: ChannelHandlerContext) {
+        self.context = context
+    }
+
+    func handlerRemoved(context: ChannelHandlerContext) {
+        self.context = nil
+        peer = nil
+    }
 
     func attach(peer: Channel) {
         self.peer = peer
-        for buffer in pending {
-            write(buffer, to: peer)
-        }
-        pending.removeAll()
-    }
-
-    private func write(_ buffer: ByteBuffer, to peer: Channel) {
-        let payload = SSHChannelData(type: .channel, data: .byteBuffer(buffer))
-        peer.writeAndFlush(payload, promise: nil)
+        context?.read()
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
         let buffer = unwrapInboundIn(data)
-        if let peer {
-            write(buffer, to: peer)
-        } else {
-            pending.append(buffer)
+        let payload = SSHChannelData(type: .channel, data: .byteBuffer(buffer))
+        peer?.writeAndFlush(payload).whenComplete { [weak self] _ in
+            // 写完成回调运行在对端（写入方）的 EL 上，read 必须跳回本侧 EL。
+            guard let self, let context = self.context else { return }
+            context.eventLoop.execute {
+                context.read()
+            }
         }
     }
 
@@ -117,17 +140,25 @@ private final class LocalForwardAcceptHandler: ChannelInboundHandler {
     }
 
     func channelActive(context: ChannelHandlerContext) {
+        // context.channel 只能在本 channel 的 eventLoop 上访问（NIO 线程断言，
+        // ChannelPipeline.swift:158），异步回调里用的是 transport 的 EL，
+        // 必须先把 channel 引用取出来。
+        let localChannel = context.channel
         session.createDirectTCPIPChannel(targetHost: targetHost, targetPort: targetPort) { child in
-            child.eventLoop.makeSucceededFuture(())
+            child.setOption(ChannelOptions.autoRead, value: false)
         }.whenComplete { [tcpRelay] result in
             switch result {
             case .failure:
-                context.close(promise: nil)
+                localChannel.close(promise: nil)
             case .success(let sshChannel):
                 let sshRelay = SSHSideRelayHandler()
                 sshChannel.pipeline.addHandler(sshRelay).whenComplete { _ in
-                    sshRelay.attach(peer: context.channel)
-                    tcpRelay.attach(peer: sshChannel)
+                    // 此处运行在 sshChannel（transport）EL 上。
+                    sshRelay.attach(peer: localChannel)
+                    // tcpRelay 属于本地连接，状态读写跳回它自己的 EL。
+                    localChannel.eventLoop.execute {
+                        tcpRelay.attach(peer: sshChannel)
+                    }
                 }
             }
         }
@@ -167,13 +198,22 @@ private final class Socks5Handler: ChannelInboundHandler {
 
     func handlerAdded(context: ChannelHandlerContext) {
         _ = context.pipeline.addHandler(tcpRelay)
+        // 背压：autoRead=false，握手阶段由本 handler 自己驱动 read。
+        context.read()
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
-        // 握手完成后数据直通 tcpRelay（它在 pipeline 更深处）。
+        // 握手完成后数据直通 tcpRelay（它在 pipeline 更深处），
+        // 之后的读取节奏由 tcpRelay 的写完成回调驱动（背压）。
         if state == .established {
             context.fireChannelRead(data)
             return
+        }
+        defer {
+            // 握手阶段：处理完一批就再要一批（解析不完整时等齐字节）。
+            if state != .established {
+                context.read()
+            }
         }
         var inbound = unwrapInboundIn(data)
         buffer.writeBuffer(&inbound)
@@ -188,6 +228,7 @@ private final class Socks5Handler: ChannelInboundHandler {
             write(context: context, bytes: [0x05, 0x00])
             state = .request
             if buffer.readableBytes > 0 {
+                // 握手包与请求包同批到达：继续解析剩余字节。
                 channelRead(context: context, data: NIOAny(ByteBuffer()))
             }
 
@@ -235,26 +276,33 @@ private final class Socks5Handler: ChannelInboundHandler {
     }
 
     private func openTunnel(context: ChannelHandlerContext, host: String, port: Int) {
+        // 同 LocalForwardAcceptHandler：channel 引用先取出来，回调里涉及
+        // 本 channel 状态的操作跳回它自己的 eventLoop。
+        let localChannel = context.channel
         session.createDirectTCPIPChannel(targetHost: host, targetPort: port) { child in
-            child.eventLoop.makeSucceededFuture(())
-        }.whenComplete { [tcpRelay, weak context] result in
-            guard let context else { return }
-            switch result {
-            case .failure:
-                self.replyFailureAndClose(context: context)
-            case .success(let sshChannel):
-                // REP=00 成功（BND.ADDR/PORT 填 0，客户端不校验）
-                self.write(context: context, bytes: [0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
-                self.state = .established
-                let sshRelay = SSHSideRelayHandler()
-                sshChannel.pipeline.addHandler(sshRelay).whenComplete { _ in
-                    sshRelay.attach(peer: context.channel)
-                    tcpRelay.attach(peer: sshChannel)
-                }
-                // 握手阶段残留在 buffer 里的数据补发给隧道。
-                if self.buffer.readableBytes > 0,
-                   let chunk = self.buffer.readSlice(length: self.buffer.readableBytes) {
-                    tcpRelay.channelRead(context: context, data: NIOAny(chunk))
+            child.setOption(ChannelOptions.autoRead, value: false)
+        }.whenComplete { [tcpRelay] result in
+            localChannel.eventLoop.execute {
+                switch result {
+                case .failure:
+                    self.replyFailureAndClose(context: context)
+                case .success(let sshChannel):
+                    // REP=00 成功（BND.ADDR/PORT 填 0，客户端不校验）
+                    self.write(context: context, bytes: [0x05, 0x00, 0x00, 0x01, 0, 0, 0, 0, 0, 0])
+                    self.state = .established
+                    let sshRelay = SSHSideRelayHandler()
+                    sshChannel.pipeline.addHandler(sshRelay).whenComplete { _ in
+                        // 此处运行在 sshChannel（transport）EL 上。
+                        sshRelay.attach(peer: localChannel)
+                        localChannel.eventLoop.execute {
+                            tcpRelay.attach(peer: sshChannel)
+                            // 握手阶段残留在 buffer 里的数据补发给隧道。
+                            if self.buffer.readableBytes > 0,
+                               let chunk = self.buffer.readSlice(length: self.buffer.readableBytes) {
+                                tcpRelay.channelRead(context: context, data: NIOAny(chunk))
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -343,9 +391,10 @@ final class PortForwardRuntime {
         let session = SessionFactory.makeSession(for: connection)
         self.session = session
         if rule.type == .remote {
-            session.inboundForwardedTCPIPHandler = { [weak self] child in
-                guard let self else { return child.close() }
-                return self.attachForwardedChannel(child)
+            let localServicePort = rule.localServicePort
+            session.inboundForwardedTCPIPHandler = { child in
+                // 该闭包在 transport eventLoop 上同步执行，不能触 @MainActor 状态。
+                Self.attachForwardedChannel(child, localPort: localServicePort)
             }
         }
         stateCancellable = session.$state
@@ -389,6 +438,9 @@ final class PortForwardRuntime {
         let targetPort = rule.remotePort
         let bootstrap = ServerBootstrap(group: group)
             .serverChannelOption(ChannelOptions.socketOption(.so_reuseaddr), value: 1)
+            // 背压：accepted 连接与 SSH 子 channel 都关 autoRead，
+            // 由 relay 的写完成回调驱动下一份读取。
+            .childChannelOption(ChannelOptions.autoRead, value: false)
             .childChannelInitializer { channel in
                 if socks {
                     channel.pipeline.addHandler(Socks5Handler(session: session))
@@ -400,19 +452,26 @@ final class PortForwardRuntime {
                     ))
                 }
             }
-        listener = try await bootstrap.bind(host: rule.localListenHost, port: rule.localListenPort).get()
-    }
+        listener = try await bootstrap.bind(host: rule.localListenHost, port: rule.localListenPort).get()    }
 
     /// -R：把入站的 forwardedTCPIP channel 接到本地服务端口。
-    private func attachForwardedChannel(_ child: Channel) -> EventLoopFuture<Void> {
+    /// 在 transport eventLoop 上同步调用，故为 nonisolated static。
+    private nonisolated static func attachForwardedChannel(
+        _ child: Channel,
+        localPort: Int
+    ) -> EventLoopFuture<Void> {
         let sshRelay = SSHSideRelayHandler()
         do {
             try child.pipeline.syncOperations.addHandler(sshRelay)
         } catch {
             return child.close()
         }
-        let localPort = rule.localServicePort
+        // 背压：SSH 子 channel 与本地连接都关 autoRead（本地侧在 bootstrap 上设）。
+        child.eventLoop.execute {
+            _ = child.setOption(ChannelOptions.autoRead, value: false)
+        }
         ClientBootstrap(group: child.eventLoop)
+            .channelOption(ChannelOptions.autoRead, value: false)
             .connect(host: "127.0.0.1", port: localPort)
             .whenComplete { result in
                 switch result {
@@ -421,6 +480,7 @@ final class PortForwardRuntime {
                 case .success(let local):
                     let tcpRelay = TCPSideRelayHandler()
                     local.pipeline.addHandler(tcpRelay).whenComplete { _ in
+                        // group 就是 child.eventLoop，两侧同 EL，可直接 attach。
                         sshRelay.attach(peer: local)
                         tcpRelay.attach(peer: child)
                     }

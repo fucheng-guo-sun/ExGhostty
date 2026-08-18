@@ -79,5 +79,7 @@ extension Translations {
         "本地代理端口": "Local Proxy Port",
         "规则绑定的 SSH 连接已不存在": "The SSH connection bound to this rule no longer exists.",
         "重连次数过多，已自动停止": "Too many reconnect attempts; stopped automatically.",
+        "访问页面": "Open Page",
+        "输入网址": "Enter URL",
     ]
 }
