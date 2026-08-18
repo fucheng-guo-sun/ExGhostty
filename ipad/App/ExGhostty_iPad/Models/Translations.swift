@@ -47,5 +47,10 @@ enum Translations {
         "兼容 OpenAI 的 /chat/completions 接口": "Compatible with OpenAI's /chat/completions API",
         "密钥": "Keys",
         "密钥管理": "Key Management",
+        "关于": "About",
+        "版本": "Version",
+        "作者": "Author",
+        "项目链接": "Links",
+        "功能完整的 SSH 客户端": "A full-featured SSH client",
     ]
 }

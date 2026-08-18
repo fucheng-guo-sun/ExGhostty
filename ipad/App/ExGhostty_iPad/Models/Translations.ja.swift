@@ -31,6 +31,11 @@ extension Translations {
         "兼容 OpenAI 的 /chat/completions 接口": "OpenAI 互換の /chat/completions API",
         "密钥": "鍵",
         "密钥管理": "鍵の管理",
+        "关于": "このアプリについて",
+        "版本": "バージョン",
+        "作者": "作者",
+        "项目链接": "リンク",
+        "功能完整的 SSH 客户端": "フル機能の SSH クライアント",
 
         // MARK: ConnectionListView (home)
         "SSH 连接": "SSH 接続",

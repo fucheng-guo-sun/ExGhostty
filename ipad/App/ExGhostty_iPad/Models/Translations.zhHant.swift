@@ -38,6 +38,11 @@ extension Translations {
         "兼容 OpenAI 的 /chat/completions 接口": "相容 OpenAI 的 /chat/completions 介面",
         "密钥": "金鑰",
         "密钥管理": "金鑰管理",
+        "关于": "關於",
+        "版本": "版本",
+        "作者": "作者",
+        "项目链接": "專案連結",
+        "功能完整的 SSH 客户端": "功能完整的 SSH 用戶端",
 
         // MARK: home（Translations.home.swift）
         "SSH 连接": "SSH 連線",

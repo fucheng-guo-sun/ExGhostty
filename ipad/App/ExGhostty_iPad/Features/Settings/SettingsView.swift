@@ -5,7 +5,8 @@
 //  Settings page with the Mac version's split layout: a category list on
 //  the left and the detail pane on the right. Categories: General
 //  (language / editor), Theme (574 bundled ghostty themes, applied live),
-//  Appearance (bundled fonts + size), AI and Keys.
+//  Appearance (bundled fonts + size), AI, Keys and About (author info and
+//  project links, modeled on the Mac About dialog).
 //  Settings apply live (UserDefaults-backed stores), so the top-left back
 //  button just pops the page; no explicit save step is needed.
 //
@@ -81,6 +82,7 @@ struct SettingsView: View {
         case .appearance: appearanceSection
         case .ai: aiSection
         case .keys: keysSection
+        case .about: AboutSettingsView()
         }
     }
 
@@ -259,7 +261,7 @@ struct SettingsView: View {
 // MARK: - 分类
 
 enum SettingsCategory: String, CaseIterable, Identifiable {
-    case general, theme, appearance, ai, keys
+    case general, theme, appearance, ai, keys, about
 
     var id: String { rawValue }
 
@@ -270,6 +272,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .appearance: return "外观"
         case .ai: return "AI 助手"
         case .keys: return "密钥"
+        case .about: return "关于"
         }
     }
 
@@ -280,6 +283,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .appearance: return "paintbrush"
         case .ai: return "cpu"
         case .keys: return "key"
+        case .about: return "info.circle"
         }
     }
 }
