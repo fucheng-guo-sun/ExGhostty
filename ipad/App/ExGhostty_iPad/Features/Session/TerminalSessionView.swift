@@ -80,6 +80,10 @@ struct TerminalSessionView: View {
         .task {
             await tab.connectIfNeeded()
         }
+        .onReceive(NotificationCenter.default.publisher(for: UIApplication.didBecomeActiveNotification)) { _ in
+            // 锁屏/后台后回到前台：失败/断开的会话整体重连。
+            Task { await tab.reconnectIfNeeded() }
+        }
     }
 
     // MARK: Function bar

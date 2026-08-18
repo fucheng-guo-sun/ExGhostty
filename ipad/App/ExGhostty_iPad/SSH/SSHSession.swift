@@ -268,6 +268,24 @@ final class SSHSession: ObservableObject {
 
     // MARK: Transport lifecycle
 
+    /// Serializes concurrent ensureConnected() calls (tab-level and
+    /// terminal-view-level reconnects can fire together on foregrounding).
+    private var connectInFlight = false
+
+    /// Reconnects if the transport is dead; a no-op when already connected.
+    /// Used by the auto-reconnect paths after iOS suspends the app (lock
+    /// screen / background), which tears down the TCP connection.
+    func ensureConnected() async throws {
+        if await currentState == .connected, let transport, transport.isActive { return }
+        guard !connectInFlight else { return }
+        connectInFlight = true
+        defer { connectInFlight = false }
+        // 清掉失败/关闭状态残留的 group 和 transport，再整体重连。
+        closeTransports()
+        shutdownGroup()
+        try await connect()
+    }
+
     func connect() async throws {
         await setState(.connecting)
 
@@ -348,6 +366,7 @@ final class SSHSession: ObservableObject {
                 }
             }
             .channelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_REUSEADDR), value: 1)
+            .channelOption(ChannelOptions.socket(SocketOptionLevel(SOL_SOCKET), SO_KEEPALIVE), value: 1)
             .channelOption(ChannelOptions.socket(SocketOptionLevel(IPPROTO_TCP), TCP_NODELAY), value: 1)
             .connectTimeout(.seconds(10))
 

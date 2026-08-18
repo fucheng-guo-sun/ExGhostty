@@ -15,6 +15,11 @@ extension Translations {
         // MARK: Session（标签页 / 功能栏 / 空态引导）
         "正在连接 %@:%d…": "Connecting to %@:%d…",
         "连接失败": "Connection Failed",
+        "连接已中断": "Connection lost",
+        "连接已断开，正在重连…": "Connection lost. Reconnecting…",
+        "已重新连接": "Reconnected",
+        "重连失败": "Reconnect failed",
+        "按任意键重新连接…": "Press any key to reconnect…",
         "终端": "Terminal",
         "端口": "Ports",
         "监控": "Monitor",

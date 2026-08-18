@@ -89,11 +89,15 @@ private final class SSHShellChannelHandler: ChannelInboundHandler {
     func userInboundEventTriggered(context: ChannelHandlerContext, event: Any) {
         if let status = event as? SSHChannelRequestEvent.ExitStatus {
             DispatchQueue.main.async { [weak terminalView] in
-                terminalView?.feed(text: "\n[SSH] Session exited with status \(status.exitStatus)\n")
+                // 远端正常退出（如用户输入 exit）——标记后不按意外死亡自动
+                // 重连，但终端里按任意键可手动重连（见 send(source:data:)）。
+                terminalView?.remoteExitReceived = true
+                terminalView?.feed(text: "\r\n[SSH] Session exited with status \(status.exitStatus)\r\n[SSH] \(L("按任意键重新连接…"))\r\n")
             }
         } else if let signal = event as? SSHChannelRequestEvent.ExitSignal {
             DispatchQueue.main.async { [weak terminalView] in
-                terminalView?.feed(text: "\n[SSH] Session closed: \(signal.signalName)\n")
+                terminalView?.remoteExitReceived = true
+                terminalView?.feed(text: "\r\n[SSH] Session closed: \(signal.signalName)\r\n[SSH] \(L("按任意键重新连接…"))\r\n")
             }
         } else {
             context.fireUserInboundEventTriggered(event)
@@ -102,7 +106,9 @@ private final class SSHShellChannelHandler: ChannelInboundHandler {
 
     func errorCaught(context: ChannelHandlerContext, error: Error) {
         DispatchQueue.main.async { [weak terminalView] in
-            terminalView?.feed(text: "[ERROR] \(error.localizedDescription)\n")
+            // NIOSSHError 的 localizedDescription 形如 "error 1"，对用户无意义。
+            let message = error is NIOSSHError ? L("连接已中断") : error.localizedDescription
+            terminalView?.feed(text: "\r\n[ERROR] \(message)\r\n")
         }
         context.close(promise: nil)
     }
@@ -138,6 +144,7 @@ public class SshTerminalView: TerminalView, TerminalViewDelegate {
     func start(with session: SSHSession) {
         guard !didStart else { return }
         didStart = true
+        remoteExitReceived = false
         self.session = session
 
         let terminal = getTerminal()
@@ -164,7 +171,7 @@ public class SshTerminalView: TerminalView, TerminalViewDelegate {
             case .failure(let error):
                 self.didStart = false // allow a later retry
                 DispatchQueue.main.async {
-                    self.feed(text: "[ERROR] \(error.localizedDescription)\n")
+                    self.feed(text: "\r\n[ERROR] \(error.localizedDescription)\r\n")
                 }
             case .success(let channel):
                 self.shellChannel = channel
@@ -210,6 +217,41 @@ public class SshTerminalView: TerminalView, TerminalViewDelegate {
         shellChannel = nil
         cancelIdentityWatch()
         onShellClosed?()
+        // 意外死亡（锁屏/后台被系统断开、服务器掉线等）立即尝试重连；
+        // 用户主动 exit（remoteExitReceived）则保持现状。
+        attemptReconnect()
+    }
+
+    // MARK: Auto reconnect
+
+    /// 收到远端 exit-status / exit-signal 时置位：此后不自动重连（start 时复位）。
+    fileprivate var remoteExitReceived = false
+    private var reconnectTask: Task<Void, Never>?
+
+    /// 在 shell 死亡且非用户主动退出时重连传输层并重开 shell。
+    /// iOS 锁屏/后台会挂起进程、杀死 TCP 连接，回到前台时（由
+    /// TerminalHostViewController 的 didBecomeActive 观察触发）靠它恢复。
+    /// shell 活着或正在重连时是幂等 no-op。
+    func attemptReconnect() {
+        guard shellChannel == nil, !remoteExitReceived, reconnectTask == nil, let session else { return }
+        reconnectTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            defer { self.reconnectTask = nil }
+            if !session.isConnected {
+                self.feed(text: "\r\n[SSH] \(L("连接已断开，正在重连…"))\r\n")
+                do {
+                    try await session.ensureConnected()
+                    self.feed(text: "[SSH] \(L("已重新连接"))\r\n")
+                } catch {
+                    self.feed(text: "[SSH] \(L("重连失败")): \(error.localizedDescription)\r\n")
+                    return
+                }
+            }
+            if self.shellChannel == nil, !self.remoteExitReceived, session.isConnected {
+                self.didStart = false
+                self.start(with: session)
+            }
+        }
     }
 
     // MARK: User Identity switch
@@ -322,7 +364,21 @@ public class SshTerminalView: TerminalView, TerminalViewDelegate {
     }
 
     public func send(source: TerminalView, data: ArraySlice<UInt8>) {
+        // shell 已退出（用户 exit 过）时，任何按键都当作重连指令，
+        // 而不是把字节丢进死 channel。
+        if shellChannel == nil {
+            reconnectOnUserInput()
+            return
+        }
         send(Data(data))
+    }
+
+    /// exit 后的手动重连：清除"主动退出"标记再走标准重连流程——
+    /// 传输层还活着时直接重开 shell，死了则先 ensureConnected。
+    private func reconnectOnUserInput() {
+        guard shellChannel == nil, remoteExitReceived, reconnectTask == nil else { return }
+        remoteExitReceived = false
+        attemptReconnect()
     }
 
     public func clipboardCopy(source: TerminalView, content: Data) {

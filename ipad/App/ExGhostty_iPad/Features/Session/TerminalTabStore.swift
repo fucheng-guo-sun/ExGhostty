@@ -39,6 +39,18 @@ final class TerminalTab: Identifiable, ObservableObject {
         try? await session.connect()
     }
 
+    /// 回到前台时被调用：失败/断开的会话重连（成功后 SwiftUI 会从
+    /// 错误页切回终端，新的宿主控制器自动重开 shell）。
+    @MainActor
+    func reconnectIfNeeded() async {
+        switch session.state {
+        case .failed, .closed:
+            try? await session.ensureConnected()
+        default:
+            break
+        }
+    }
+
     func disconnect() {
         session.disconnect()
     }

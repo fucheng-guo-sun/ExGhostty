@@ -51,6 +51,13 @@ final class TerminalHostViewController: UIViewController {
             name: UIResponder.keyboardWillChangeFrameNotification,
             object: nil
         )
+        // 锁屏/后台会杀死 SSH 连接，回到前台时按需重连。
+        NotificationCenter.default.addObserver(
+            self,
+            selector: #selector(appDidBecomeActive),
+            name: UIApplication.didBecomeActiveNotification,
+            object: nil
+        )
 
         // 初始应用 + 跟随设置变更（sink 会立即回放当前值）。
         let settings = SettingsStore.shared
@@ -97,6 +104,10 @@ final class TerminalHostViewController: UIViewController {
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
         terminalView.becomeFirstResponder()
+    }
+
+    @objc private func appDidBecomeActive() {
+        terminalView.attemptReconnect()
     }
 
     @objc private func keyboardWillChangeFrame(_ note: Notification) {
