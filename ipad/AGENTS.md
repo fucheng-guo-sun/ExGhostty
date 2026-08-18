@@ -8,7 +8,7 @@
 ## 项目构成
 
 - `App/ExGhostty_iPad/` — iPad App 本体（约 42 个 Swift 文件），Xcode 工程在 `App/ExGhostty_iPad.xcodeproj`。
-- `Sources/SwiftTerm/` — 内嵌的 [migueldeicaza/SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) 快照（终端引擎 + UIKit/AppKit 视图 + Metal 渲染），作为 SPM 本地库使用。**这是较旧的上游快照，基本无本地补丁；App 专属逻辑一律放 `App/`，不要污染库代码。**
+- `Sources/SwiftTerm/` — 内嵌的 [migueldeicaza/SwiftTerm](https://github.com/migueldeicaza/SwiftTerm) 快照（终端引擎 + UIKit/AppKit 视图 + Metal 渲染），作为 SPM 本地库使用。**App 专属逻辑一律放 `App/`**。本地补丁清单（改动库代码时必须在此登记）：`iOS/iOSTextInput.swift` 的 `caretRect(for:)`/`firstRect(for:)` 从返回 `bounds` 改为返回光标视图 frame（否则物理键盘输入法候选窗无锚点）。
 - `Vendor/swift-nio-ssh/` — SSH 协议栈依赖。
 - SPM 远程依赖：`swift-nio`、`swift-crypto`（NIOSSH 需要）、`SWCompression`（仅用于 SFTP 目录传输的 tar.gz 本地打包/解压，见 `Features/SFTP/TarGzArchive.swift`）。
 - `Sources/CaptureOutput`、`Sources/Termcast`、`Sources/SwiftTermFuzz`、`Tests/SwiftTermTests` — 上游 SwiftTerm 自带的工具与测试，与 App 无关。
@@ -26,7 +26,7 @@
 - **入口**：`ExGhosttyApp.swift`（SwiftUI 生命周期；`init()` 先跑 `LegacyDataMigration`）。根视图 `MainSplitView`（手写 HStack：左侧连接列表 `ConnectionListView`，右侧 `TerminalTabContainerView`），强制深色模式。
 - **Tab/会话**：`Features/Session/TerminalTabStore.swift` — `TerminalTab` 持有 `SSHSession` + `TerminalBox`（弱引用终端控制器）。所有 tab 用 `ZStack + opacity` 常驻视图树保活，切换不销毁会话——新增面板/页面时必须保持这一模式。
 - **SSH 层**（`SSH/`）：`SSHSession`（NIOSSH，`MultiThreadedEventLoopGroup(3)`，子 channel 承载 shell/exec/sftp）。认证 `FlexibleAuthDelegate`（私钥优先、回落密码；**不支持 keyboard-interactive、不支持加密私钥**）。跳板机 = `openNestedTransport`（跳板机 directTCPIP 上二次握手，经 `SSHDataCodec` 做字节转换）。`SFTPClient` 是手写 SFTP v3。**端口转发功能已从 iPad 版移除**（用户需求，Mac 版仍有）。
-- **终端接入**：`SSH/SshTerminalView.swift` — `class SshTerminalView: TerminalView, TerminalViewDelegate`（用 UIKit 的 `TerminalView`，**不是** `SwiftUITerminalView`，后者仅 DEBUG 内部调试用）。数据流：下行 `channelRead` → 1KB 切片 → 主线程 `feed(byteArray:)`；上行 `TerminalViewDelegate.send` → `writeAndFlush`；resize → `WindowChangeRequest`。宿主 `TerminalHostViewController`（UIKit 容器 + `keyboardLayoutGuide`），经 `TerminalSessionView` 内 `UIViewControllerRepresentable` 桥接进 SwiftUI。
+- **终端接入**：`SSH/SshTerminalView.swift` — `class SshTerminalView: TerminalView, TerminalViewDelegate`（用 UIKit 的 `TerminalView`，**不是** `SwiftUITerminalView`，后者仅 DEBUG 内部调试用）。数据流：下行 `channelRead` → 1KB 切片 → 主线程 `feed(byteArray:)`；上行 `TerminalViewDelegate.send` → `writeAndFlush`；resize → `WindowChangeRequest`。连接物理键盘时（`GCKeyboard` 监测）自动隐藏 esc/ctrl 输入工具条，断开恢复。宿主 `TerminalHostViewController`（UIKit 容器 + `keyboardLayoutGuide`），经 `TerminalSessionView` 内 `UIViewControllerRepresentable` 桥接进 SwiftUI；功能条右侧常驻 `InputModeBadge`（`Models/InputModeMonitor.swift`，显示当前输入法：中/繁/EN/あ/한…）。
 - **功能面板**（`Features/`，每个目录一个域）：`Session`（标签页）、`Home`（连接列表/编辑）、`Settings`、`Keys`（私钥管理，自研 OpenSSH/PEM 解析；`SSHKeyListContent` 是无导航壳的列表+导入/删除内容视图，设置页 Keys 分区直接内嵌它；`SSHKeyManagementView` 是其 push 整页包装，连接编辑页仍在用）、`SFTP`、`SessionReuse`（tmux/rmux/zellij）、`PortUsage`、`Docker`、`SystemMonitor`（远端 `xtop --all --json --stream` 流式采集，含 GPU/磁盘读写，对齐 Mac 版）、`AIAssistant`（OpenAI 兼容 SSE 流式）。所有面板注入同一个 `SSHSession`，通过 `session.exec()` / `execStream()` 跑远程命令；需要"往终端打字"的面板额外拿 `TerminalBox`。
 - **设置页**（`Features/Settings/`）：Mac 风格左右分栏——左 200pt 分类 `List`（`SettingsCategory`：通用/主题/外观/AI/密钥/关于），右侧 ScrollView detail；`settingsRow(label:controlWidth:)` 统一"120pt 标签 + 定宽控件列"的行式对齐（默认控件宽 240，AI 输入框 360，行内不要再给控件单独设 `.frame(width:)`）。经 `SettingsViewController`（全屏 push 转场 + 强制深色）从主界面推出。
 

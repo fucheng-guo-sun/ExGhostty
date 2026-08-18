@@ -4,7 +4,9 @@
 //
 //  SSH session page: a top function bar switches between the terminal and
 //  the feature panels (SFTP, session reuse, port usage, Docker, system
-//  monitor, AI assistant). All panels share one SSHSession.
+//  monitor, AI assistant). All panels share one SSHSession. The bar's
+//  trailing edge shows the current input mode (InputModeBadge) — with a
+//  hardware keyboard that is the only visible IME-switch feedback.
 //
 
 import SwiftUI
@@ -80,21 +82,26 @@ struct TerminalSessionView: View {
     // MARK: Function bar
 
     private var functionBar: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(SessionFunction.allCases) { function in
-                    FunctionButton(
-                        function: function,
-                        isSelected: selectedFunction == function
-                    ) {
-                        withAnimation(.easeInOut(duration: 0.15)) {
-                            selectedFunction = function
+        HStack(spacing: 0) {
+            ScrollView(.horizontal, showsIndicators: false) {
+                HStack(spacing: 4) {
+                    ForEach(SessionFunction.allCases) { function in
+                        FunctionButton(
+                            function: function,
+                            isSelected: selectedFunction == function
+                        ) {
+                            withAnimation(.easeInOut(duration: 0.15)) {
+                                selectedFunction = function
+                            }
                         }
                     }
                 }
+                .padding(.horizontal, 12)
+                .padding(.vertical, 8)
             }
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
+            // 当前输入法指示（物理键盘切换 IME 时唯一可见的反馈），居右固定。
+            InputModeBadge()
+                .padding(.trailing, 12)
         }
         .background(Color(white: 0.11))
     }
@@ -164,6 +171,24 @@ struct TerminalSessionView: View {
         case .aiAssistant:
             AIAssistantPanelView(session: session, terminalBox: terminalBox)
         }
+    }
+}
+
+private struct InputModeBadge: View {
+    @StateObject private var monitor = InputModeMonitor.shared
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: "globe")
+                .font(.system(size: 11))
+            Text(monitor.label)
+                .font(.system(size: 11, weight: .semibold, design: .monospaced))
+        }
+        .foregroundStyle(.secondary)
+        .padding(.horizontal, 8)
+        .padding(.vertical, 4)
+        .background(Color(white: 0.18), in: Capsule())
+        .opacity(monitor.label.isEmpty ? 0 : 1)
     }
 }
 

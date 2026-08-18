@@ -3,10 +3,13 @@
 //  ExGhostty_iPad
 //
 //  SwiftTerm TerminalView bound to a shell child channel of an SSHSession.
+//  Also hides the on-screen accessory bar (esc/ctrl …) while a hardware
+//  keyboard is attached (GCKeyboard), restoring it on disconnect.
 //
 
 import Foundation
 import UIKit
+import GameController
 import SwiftTerm
 import NIOCore
 import NIOSSH
@@ -119,6 +122,7 @@ public class SshTerminalView: TerminalView, TerminalViewDelegate {
     public override init(frame: CGRect) {
         super.init(frame: frame)
         terminalDelegate = self
+        observeHardwareKeyboard()
     }
 
     required init?(coder: NSCoder) {
@@ -257,6 +261,54 @@ public class SshTerminalView: TerminalView, TerminalViewDelegate {
         identityPromptTail = ""
         identityWatchItem?.cancel()
         identityWatchItem = nil
+    }
+
+    // MARK: Hardware keyboard
+
+    /// The accessory bar (esc/ctrl …) stashed while a hardware keyboard is
+    /// attached — physical keyboards make it redundant, so it is hidden.
+    private var stashedAccessory: UIView?
+
+    private func observeHardwareKeyboard() {
+        applyHardwareKeyboardState()
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(hardwareKeyboardDidChange),
+            name: .GCKeyboardDidConnect, object: nil
+        )
+        NotificationCenter.default.addObserver(
+            self, selector: #selector(hardwareKeyboardDidChange),
+            name: .GCKeyboardDidDisconnect, object: nil
+        )
+    }
+
+    /// 成为第一响应者时把自己登记为当前文本输入，供功能条显示输入法。
+    public override func becomeFirstResponder() -> Bool {
+        let didBecome = super.becomeFirstResponder()
+        if didBecome {
+            InputModeMonitor.shared.activeResponder = self
+            InputModeMonitor.shared.refresh()
+        }
+        return didBecome
+    }
+
+    @objc private func hardwareKeyboardDidChange() {
+        DispatchQueue.main.async {
+            self.applyHardwareKeyboardState()
+        }
+    }
+
+    private func applyHardwareKeyboardState() {
+        if GCKeyboard.coalesced != nil {
+            if inputAccessoryView != nil {
+                stashedAccessory = inputAccessoryView
+                inputAccessoryView = nil
+                reloadInputViews()
+            }
+        } else if inputAccessoryView == nil, let stashedAccessory {
+            self.stashedAccessory = nil
+            inputAccessoryView = stashedAccessory
+            reloadInputViews()
+        }
     }
 
     // MARK: TerminalViewDelegate

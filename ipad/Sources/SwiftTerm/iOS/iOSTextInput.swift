@@ -361,10 +361,22 @@ extension TerminalView: UITextInput {
     }
             
     public func firstRect(for range: UITextRange) -> CGRect {
-        return bounds
+        // Anchor the IME candidate/composition window at the terminal caret
+        // instead of the whole view (returning `bounds` here leaves hardware-
+        // keyboard IME UI with no meaningful anchor).
+        return imeAnchorRect
     }
-    
+
     public func caretRect(for position: UITextPosition) -> CGRect {
+        return imeAnchorRect
+    }
+
+    /// The caret frame in this view's coordinate space (the caret view is a
+    /// subview, so its frame is already expressed in our coordinates).
+    private var imeAnchorRect: CGRect {
+        if let caretView, caretView.superview != nil, !caretView.isHidden {
+            return caretView.frame
+        }
         return bounds
     }
     
