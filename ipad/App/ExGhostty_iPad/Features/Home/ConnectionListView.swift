@@ -107,7 +107,8 @@ struct ConnectionListView: View {
         .padding(.vertical, 10)
     }
 
-    /// Collapsed icon strip (mirrors ExGhostty): expand, add, settings.
+    /// Collapsed icon strip (mirrors ExGhostty): expand, add, port forward,
+    /// settings.
     private var collapsedStrip: some View {
         VStack(spacing: 20) {
             Button {
@@ -123,6 +124,12 @@ struct ConnectionListView: View {
                     .font(.system(size: 15, weight: .medium))
             }
             Spacer()
+            Button {
+                PortForwardViewController.present()
+            } label: {
+                Image(systemName: "fibrechannel")
+                    .font(.system(size: 15, weight: .medium))
+            }
             Button {
                 SettingsViewController.present()
             } label: {
@@ -199,17 +206,31 @@ struct ConnectionListView: View {
     }
 
     private var bottomBar: some View {
-        HStack {
-            Spacer()
-            Button {
-                SettingsViewController.present()
-            } label: {
-                Label(L("设置"), systemImage: "gearshape")
-                    .font(.system(size: 15, weight: .medium))
+        VStack(spacing: 0) {
+            HStack {
+                Spacer()
+                Button {
+                    PortForwardViewController.present()
+                } label: {
+                    Label(L("端口转发"), systemImage: "fibrechannel")
+                        .font(.system(size: 15, weight: .medium))
+                }
+                Spacer()
             }
-            Spacer()
+            .padding(.vertical, 10)
+            Divider()
+            HStack {
+                Spacer()
+                Button {
+                    SettingsViewController.present()
+                } label: {
+                    Label(L("设置"), systemImage: "gearshape")
+                        .font(.system(size: 15, weight: .medium))
+                }
+                Spacer()
+            }
+            .padding(.vertical, 10)
         }
-        .padding(.vertical, 10)
         .background(Color(white: 0.13))
     }
 }

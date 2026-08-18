@@ -252,6 +252,11 @@ final class SSHSession: ObservableObject {
     /// Optional jump host; must be set before connect().
     var jump: JumpSpec?
 
+    /// -R 远程转发：远端 accept 的连接会以 forwardedTCPIP 子 channel 到达，
+    /// 此闭包负责把它们接到本地服务（见 PortForwardRuntime）。主 transport
+    /// 生效，跳板机 transport 不装。connect() 之前设置。
+    var inboundForwardedTCPIPHandler: ((Channel) -> EventLoopFuture<Void>)?
+
     @Published private(set) var state: ConnectionState = .idle
 
     private var group: MultiThreadedEventLoopGroup?
@@ -318,7 +323,8 @@ final class SSHSession: ObservableObject {
                         username: config.username,
                         password: password,
                         privateKey: privateKey
-                    )
+                    ),
+                    inboundForwarding: inboundForwardedTCPIPHandler != nil
                 )
             }
             await setState(.connected)
@@ -351,7 +357,8 @@ final class SSHSession: ObservableObject {
     private func openTransport(
         host: String,
         port: Int,
-        authDelegate: NIOSSHClientUserAuthenticationDelegate
+        authDelegate: NIOSSHClientUserAuthenticationDelegate,
+        inboundForwarding: Bool = false
     ) async throws -> Channel {
         guard let group else { throw SSHSessionError.notConnected }
 
@@ -361,7 +368,8 @@ final class SSHSession: ObservableObject {
                     guard let self else { return }
                     try self.installSSHHandlers(
                         on: channel,
-                        authDelegate: authDelegate
+                        authDelegate: authDelegate,
+                        inboundForwarding: inboundForwarding
                     )
                 }
             }
@@ -419,7 +427,8 @@ final class SSHSession: ObservableObject {
                                 username: self.config.username,
                                 password: self.password,
                                 privateKey: self.privateKey
-                            )
+                            ),
+                            inboundForwarding: self.inboundForwardedTCPIPHandler != nil
                         )
                     }
                 }
@@ -434,17 +443,28 @@ final class SSHSession: ObservableObject {
 
     private func installSSHHandlers(
         on channel: Channel,
-        authDelegate: NIOSSHClientUserAuthenticationDelegate
+        authDelegate: NIOSSHClientUserAuthenticationDelegate,
+        inboundForwarding: Bool = false
     ) throws {
-        // inboundChildChannelInitializer is nil: we never request remote
-        // forwarding, so no forwardedTCPIP channels should arrive.
+        // -R 远程转发时接收 forwardedTCPIP 入站 channel；否则保持 nil
+        // （其余入站 channel 一律拒绝）。
+        let inboundInitializer: ((Channel, SSHChannelType) -> EventLoopFuture<Void>)? =
+            inboundForwarding ? { [weak self] child, type in
+                guard case .forwardedTCPIP = type,
+                      let handler = self?.inboundForwardedTCPIPHandler else {
+                    return child.close()
+                }
+                return child.eventLoop.makeCompletedFuture {
+                    _ = handler(child)
+                }
+            } : nil
         let sshHandler = NIOSSHHandler(
             role: .client(.init(
                 userAuthDelegate: authDelegate,
                 serverAuthDelegate: AcceptAllHostKeysDelegate()
             )),
             allocator: channel.allocator,
-            inboundChildChannelInitializer: nil
+            inboundChildChannelInitializer: inboundInitializer
         )
         try channel.pipeline.syncOperations.addHandler(sshHandler)
         try channel.pipeline.syncOperations.addHandler(
@@ -505,6 +525,58 @@ final class SSHSession: ObservableObject {
                 }
             }
         }
+    }
+
+    // MARK: Port forwarding
+
+    /// -L/-D：请求远端建立一条到 targetHost:targetPort 的出站连接
+    /// （directTCPIP 子 channel）。initializer 负责装 channel 的 handler。
+    @discardableResult
+    func createDirectTCPIPChannel(
+        targetHost: String,
+        targetPort: Int,
+        _ initializer: @escaping (Channel) -> EventLoopFuture<Void>
+    ) -> EventLoopFuture<Channel> {
+        guard let transport, transport.isActive, group != nil else {
+            return MultiThreadedEventLoopGroup.singleton.next()
+                .makeFailedFuture(SSHSessionError.notConnected)
+        }
+        let originator = (try? SocketAddress(ipAddress: "127.0.0.1", port: 0))!
+        let channelType = SSHChannelType.directTCPIP(.init(
+            targetHost: targetHost,
+            targetPort: targetPort,
+            originatorAddress: originator
+        ))
+        let promise = transport.eventLoop.makePromise(of: Channel.self)
+        transport.pipeline.handler(type: NIOSSHHandler.self).whenComplete { result in
+            switch result {
+            case .failure(let error):
+                promise.fail(error)
+            case .success(let sshHandler):
+                sshHandler.createChannel(promise, channelType: channelType) { child, type in
+                    guard case .directTCPIP = type else {
+                        return child.eventLoop.makeFailedFuture(SSHSessionError.invalidChannelType)
+                    }
+                    return initializer(child)
+                }
+            }
+        }
+        return promise.futureResult
+    }
+
+    /// -R：请求远端监听 host:port 并把收到的连接以 forwardedTCPIP 转发回来。
+    /// 远端拒绝（端口被占、禁止转发等）会 throw。
+    func requestRemoteForward(listenHost: String, listenPort: Int) async throws {
+        guard let transport, transport.isActive else { throw SSHSessionError.notConnected }
+        let sshHandler = try await transport.pipeline.handler(type: NIOSSHHandler.self).get()
+        let promise = transport.eventLoop.makePromise(of: GlobalRequest.TCPForwardingResponse?.self)
+        transport.eventLoop.execute {
+            sshHandler.sendTCPForwardingRequest(
+                .listen(host: listenHost, port: listenPort),
+                promise: promise
+            )
+        }
+        _ = try await promise.futureResult.get()
     }
 
     // MARK: Child channels

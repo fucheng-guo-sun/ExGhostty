@@ -50,7 +50,8 @@ final class SettingsViewController: UIHostingController<SettingsView> {
 // MARK: - Push 转场
 
 /// 模拟 UINavigationController push 的转场：新页面从右侧滑入覆盖，关闭时向右滑出。
-private final class PushTransitionDelegate: NSObject, UIViewControllerTransitioningDelegate {
+/// Settings 与 PortForward 两个全屏页面共用。
+final class PushTransitionDelegate: NSObject, UIViewControllerTransitioningDelegate {
     static let shared = PushTransitionDelegate()
 
     func animationController(
@@ -68,7 +69,7 @@ private final class PushTransitionDelegate: NSObject, UIViewControllerTransition
     }
 }
 
-private final class PushTransitionAnimator: NSObject, UIViewControllerAnimatedTransitioning {
+final class PushTransitionAnimator: NSObject, UIViewControllerAnimatedTransitioning {
     private let isPresenting: Bool
 
     init(presenting: Bool) {

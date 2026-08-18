@@ -19,10 +19,10 @@ enum LegacyDataMigration {
     ]
 
     /// Keys whose feature was removed; their data is deleted outright.
-    /// (Port forwarding was dropped from the iPad app.)
+    /// (Only pre-rename leftovers: port forwarding was dropped and later
+    /// reintroduced, so its current key must NOT be purged.)
     private static let purgedKeys = [
         "iosterminal.portForwardRules",
-        "exghostty.ipad.portForwardRules",
     ]
 
     /// Copies each legacy value to its new key (without clobbering data

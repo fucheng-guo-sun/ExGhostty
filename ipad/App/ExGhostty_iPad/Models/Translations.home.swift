@@ -53,5 +53,31 @@ extension Translations {
         "高级": "Advanced",
         "编码": "Encoding",
         "备注": "Notes",
+
+        // MARK: 端口转发
+        "端口转发": "Port Forwarding",
+        "没有转发规则": "No Forwarding Rules",
+        "删除转发规则": "Delete Rule",
+        "转发规则": "Forwarding Rule",
+        "运行中": "Running",
+        "类型": "Type",
+        "规则名称": "Rule Name",
+        "本地 (-L)": "Local (-L)",
+        "远程 (-R)": "Remote (-R)",
+        "动态 (-D)": "Dynamic (-D)",
+        "把本机端口通过 SSH 转发到远端可达的某个主机端口":
+            "Forward a local port through SSH to a host reachable from the remote side.",
+        "把本机服务端口暴露到远端主机的监听端口上":
+            "Expose a local service port on a listening port of the remote host.",
+        "在本机起一个 SOCKS5 代理，流量经 SSH 出站":
+            "Run a local SOCKS5 proxy; traffic exits via SSH.",
+        "本地监听端口": "Local Listen Port",
+        "目标主机": "Target Host",
+        "目标端口": "Target Port",
+        "远程监听端口": "Remote Listen Port",
+        "本地服务端口": "Local Service Port",
+        "本地代理端口": "Local Proxy Port",
+        "规则绑定的 SSH 连接已不存在": "The SSH connection bound to this rule no longer exists.",
+        "重连次数过多，已自动停止": "Too many reconnect attempts; stopped automatically.",
     ]
 }
