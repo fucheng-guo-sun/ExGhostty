@@ -64,12 +64,21 @@ ExGhostty **并不是** 一个追求大而全的工具。它只希望在 **SSH �
 - 基于 [xtop](https://github.com/rarnu/xtop)，实时展示本地或远程主机的
   CPU / 内存 / 磁盘 / 网络 / GPU 卡片。
 
+### Docker 管理
+- 浏览远程主机上的容器、镜像、卷与网络。
+- 支持容器启动 / 停止 / 重启 / 删除、查看日志、删除镜像。
+
+### 端口占用
+- 查看本机或远程主机上哪个进程在监听哪个端口。
+
 ### AI 助手
 - 与 LLM（兼容 OpenAI 接口）对话，自动携带 **当前终端上下文**
   （目录、SSH 主机、标题）。
 - 应答中的命令与脚本以可运行块展示，一键复制到终端。
 
 ### 更多
+- **快捷终端（Quick Terminal）** —— 通过全局快捷键呼出的下拉式终端。
+- **命令面板** 与 **分屏**，满足日常终端使用。
 - **设置窗口** —— 全部通过原生 GUI 配置（无需手写配置文件），
   含主题预览与快捷键设置。
 - **iCloud 同步** —— 通过 iCloud Drive 在多台 Mac 间同步配置、
@@ -78,11 +87,69 @@ ExGhostty **并不是** 一个追求大而全的工具。它只希望在 **SSH �
 
 ---
 
+## iPad 版 ExGhostty
+
+ExGhostty 同样可以在 iPad 上运行。由于 iOS 没有系统自带的 `ssh`
+命令，iPad 版将 [SwiftTerm](https://github.com/migueldeicaza/SwiftTerm)
+终端引擎与 [swift-nio-ssh](https://github.com/apple/swift-nio-ssh)
+SSH 协议栈直接内嵌在 App 中：
+
+- **SSH 连接管理** —— 支持密码 / 私钥认证与跳板机；iPad 锁屏或应用
+  回到后台后自动重连。
+- **多标签页** —— 多个会话并存，还包含内置浏览器标签页，可直接打开
+  端口转发规则暴露的页面。
+- **与 Mac 版一致的工具面板** —— SFTP 文件管理、端口转发
+  （-L / -R / -D）、tmux / zellij 会话复用、Docker 管理、系统监控、
+  端口占用与 AI 助手。
+- 内置 **574 套 Ghostty / iTerm2 主题** 与 5 款等宽字体。
+- 密码与私钥保存在 **iOS 钥匙串（Keychain）** 中。
+
+### 物理键盘支持
+
+iPad 版针对物理键盘（妙控键盘、蓝牙或 USB-C 键盘）做了专门优化：
+
+- 连接物理键盘后，屏幕上的 Esc / Ctrl 辅助输入条会 **自动隐藏**，
+  让终端占满整块屏幕；键盘断开后自动恢复。
+- **完整的输入法支持** —— 中 / 日 / 韩输入法的候选窗口会锚定在终端
+  光标位置，体验与桌面终端一致。
+- 工具条上的 **输入法状态徽标** 实时显示当前输入法
+  （中 / 繁 / EN / あ / 한 …）。
+
+### 使用 iLoader 侧载安装
+
+iPad 版不上架 App Store，
+[Releases](https://github.com/rarnu/ExGhostty/releases) 页面提供了
+预编译的 IPA，通过
+[iLoader](https://github.com/nab138/iloader)（免费开源，支持
+Windows / macOS / Linux）侧载安装即可：
+
+1. 在电脑上下载
+   [Releases](https://github.com/rarnu/ExGhostty/releases) 页面中的
+   `ExGhostty.ipa`。
+2. 用 USB 数据线将 iPad 连接到电脑，打开 **iLoader**。
+3. 在 iLoader 中登录你的 Apple ID，然后选择下载好的
+   `ExGhostty.ipa` —— iLoader 会用你的账号签名并安装到设备上。
+4. 在 iPad 上进入 **设置 → 通用 → VPN 与设备管理**，信任你的开发者
+   证书；如有提示请开启 **开发者模式**。
+
+免费 Apple ID 的签名有效期为 **7 天**，到期后用 iLoader 重新签名即可
+（也可以通过 iLoader 安装 SideStore，在设备上直接续签）。付费开发者
+账号的签名有效期为一年。
+
+---
+
 ## 环境要求
 
+### macOS 应用
 - macOS
 - [Zig](https://ziglang.org) **0.15.2**
 - Xcode（用于构建 macOS 应用）
+
+### iPad 应用
+- 运行 **iPadOS 26** 或更高版本的 iPad
+- Xcode（用于构建 iPad 应用）—— 工程位于
+  `ipad/App/ExGhostty_iPad.xcodeproj`，scheme 为 `ExGhostty_iPad`；
+  依赖通过本地 Swift 包解析，无需额外配置
 
 ## 编译
 
@@ -91,6 +158,12 @@ ExGhostty **并不是** 一个追求大而全的工具。它只希望在 **SSH �
 ```
 
 编译产物位于 `zig-out/ExGhostty.app`。
+
+iPad 版可直接从
+[Releases](https://github.com/rarnu/ExGhostty/releases) 下载预编译 IPA，
+安装方法见 [使用 iLoader 侧载安装](#使用-iloader-侧载安装)。如需从源码
+编译，请用 Xcode 打开 `ipad/App/ExGhostty_iPad.xcodeproj` 并构建
+`ExGhostty_iPad` scheme。
 
 ## 使用方法
 
