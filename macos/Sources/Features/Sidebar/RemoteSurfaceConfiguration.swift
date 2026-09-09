@@ -36,6 +36,7 @@ enum RemoteSurfaceConfiguration {
         let syncPtyProc = """
         proc sync_ssh_pty {} {
             global spawn_out
+            global synced_rows synced_cols
             if {[catch {
                 # 先尝试 expect 内置 stty 读当前 PTY 尺寸（iTerm2 等脚本的标准做法）。
                 if {[catch {
@@ -45,10 +46,28 @@ enum RemoteSurfaceConfiguration {
                     set rows $env(GHOSTTY_ROWS)
                     set cols $env(GHOSTTY_COLS)
                 }
-                stty rows $rows columns $cols < $spawn_out(slave,name)
+                # 尺寸没有实际变化时跳过。远端 tmux 对每次 resize 都会整体重绘，
+                # 并把 copy-mode 的滚动位置重置到最底部，因此无谓的 resize
+                # 必须杜绝，否则用户上滚查看历史时会被频繁拉回底部。
+                if {![info exists synced_rows] || $synced_rows != $rows
+                    || ![info exists synced_cols] || $synced_cols != $cols} {
+                    stty rows $rows columns $cols < $spawn_out(slave,name)
+                    set synced_rows $rows
+                    set synced_cols $cols
+                }
             } err]} {
                 # 忽略 PTY 尺寸同步失败
             }
+        }
+
+        proc schedule_sync_ssh_pty {} {
+            global sync_timer
+            if {[info exists sync_timer]} {
+                catch { after cancel $sync_timer }
+            }
+            # 去抖：拖动窗口/分屏动画会产生 SIGWINCH 风暴，每个中间尺寸都会令
+            # 远端 tmux 重绘并重置滚动位置。只在尺寸稳定 200ms 后同步最终尺寸。
+            set sync_timer [after 200 sync_ssh_pty]
         }
         """
 
@@ -132,8 +151,9 @@ enum RemoteSurfaceConfiguration {
         expectScript += "    \(spawnLine)\n"
         expectScript += "    log_user 1\n"
         expectScript += """
+            catch { unset synced_rows synced_cols }
             sync_ssh_pty
-            trap { sync_ssh_pty } SIGWINCH
+            trap { schedule_sync_ssh_pty } SIGWINCH
 
         """
         if !identitySnippet.isEmpty {

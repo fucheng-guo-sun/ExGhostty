@@ -1075,6 +1075,26 @@ extension Ghostty {
             quickLook(with: event)
         }
 
+        /// JIS 键盘物理键到 ASCII 符号的映射。Yen 键（keyCode 0x5D，USB HID 137）
+        /// 与 RO 键（keyCode 0x5E，USB HID 135）在 ABC 等输入源下不产生任何字符，
+        /// 导致 \、|、_ 无法输入。仅在未按 Control/Option/Command 时映射（Shift 允许），
+        /// 其余情况返回 nil 走正常输入链路。
+        private func jisMappedSymbol(
+            keyCode: UInt16,
+            modifiers: NSEvent.ModifierFlags
+        ) -> (text: String, unshiftedCodepoint: UInt32)? {
+            guard modifiers.isDisjoint(with: [.control, .option, .command]) else { return nil }
+            let shift = modifiers.contains(.shift)
+            switch keyCode {
+            case 0x5D: // JIS Yen 键
+                return shift ? ("|", 0x5C) : ("\\", 0x5C)
+            case 0x5E: // JIS RO 键
+                return ("_", 0x5F)
+            default:
+                return nil
+            }
+        }
+
         override func keyDown(with event: NSEvent) {
             guard let surface = self.surface else {
                 self.interpretKeyEvents([event])
@@ -1083,6 +1103,21 @@ extension Ghostty {
 
             // On any keyDown event we unset our bell state
             bell = false
+
+            // JIS 键盘的 Yen/RO 键：非 IME 组合输入状态下直接注入映射后的符号，
+            // 绕过不产生字符的输入源翻译。组合输入中（日文假名 preedit）不拦截，
+            // 交给输入法处理。
+            if !hasMarkedText(),
+               let symbol = jisMappedSymbol(keyCode: event.keyCode, modifiers: event.modifierFlags) {
+                var keyEv = event.ghosttyKeyEvent(
+                    event.isARepeat ? GHOSTTY_ACTION_REPEAT : GHOSTTY_ACTION_PRESS)
+                keyEv.unshifted_codepoint = symbol.unshiftedCodepoint
+                _ = symbol.text.withCString { ptr in
+                    keyEv.text = ptr
+                    return ghostty_surface_key(surface, keyEv)
+                }
+                return
+            }
 
             // We need to translate the mods (maybe) to handle configs such as option-as-alt
             let translationModsGhostty = Ghostty.eventModifierFlags(
