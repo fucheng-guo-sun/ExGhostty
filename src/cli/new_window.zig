@@ -113,8 +113,8 @@ pub const Options = struct {
 ///
 /// GTK uses an application ID to identify instances of applications. If Ghostty
 /// is compiled with release optimizations, the default application ID will be
-/// `com.mitchellh.ghostty`. If Ghostty is compiled with debug optimizations,
-/// the default application ID will be `com.mitchellh.ghostty-debug`.  The
+/// `com.xjai.exghostty`. If Ghostty is compiled with debug optimizations,
+/// the default application ID will be `com.xjai.exghostty-debug`.  The
 /// `class` configuration entry can be used to set up a custom application
 /// ID. The class name must follow the requirements defined [in the GTK
 /// documentation](https://docs.gtk.org/gio/type_func.Application.id_is_valid.html)

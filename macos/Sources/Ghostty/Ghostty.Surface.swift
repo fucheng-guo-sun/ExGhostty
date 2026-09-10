@@ -92,6 +92,13 @@ extension Ghostty {
             ghostty_surface_mouse_captured(surface)
         }
 
+        /// Whether the terminal is currently showing the alternate screen
+        /// (e.g. tmux, vim). Shell command injection must not target this state.
+        @MainActor
+        var isAltScreen: Bool {
+            ghostty_surface_alt_screen_active(surface)
+        }
+
         /// The PID of the foreground process group attached to the PTY.
         @MainActor
         var foregroundPID: Int? {

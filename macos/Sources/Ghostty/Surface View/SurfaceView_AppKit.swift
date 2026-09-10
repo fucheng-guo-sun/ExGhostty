@@ -108,6 +108,10 @@ extension Ghostty {
         /// True when the bell is active. This is set inactive on focus or event.
         @Published private(set) var bell: Bool = false
 
+        /// 最近一次键盘输入时刻。SFTP 面板向终端注入目录上报命令前据此判断
+        /// 用户是否正在输入（如 SSH 密码），避免注入文本被当作密码/命令吞掉。
+        private(set) var lastKeyboardInputAt: Date = .distantPast
+
         // An initial size to request for a window. This will only affect
         // then the view is moved to a new window.
         var initialSize: NSSize?
@@ -1103,6 +1107,7 @@ extension Ghostty {
 
             // On any keyDown event we unset our bell state
             bell = false
+            lastKeyboardInputAt = Date()
 
             // JIS 键盘的 Yen/RO 键：非 IME 组合输入状态下直接注入映射后的符号，
             // 绕过不产生字符的输入源翻译。组合输入中（日文假名 preedit）不拦截，

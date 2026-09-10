@@ -3744,6 +3744,15 @@ pub fn mouseCaptured(self: *Surface) bool {
     return self.io.terminal.flags.mouse_event != .none;
 }
 
+/// Returns true if the terminal is currently showing the alternate screen
+/// (e.g. tmux, vim, sshdesk). Injected shell commands must never target the
+/// alternate screen: there is no shell reading stdin there.
+pub fn altScreenActive(self: *Surface) bool {
+    self.renderer_state.mutex.lock();
+    defer self.renderer_state.mutex.unlock();
+    return self.io.terminal.screens.active_key == .alternate;
+}
+
 /// Called for mouse button press/release events. This will return true
 /// if the mouse event was consumed in some way (i.e. the program is capturing
 /// mouse events). If the event was not consumed, then false is returned.

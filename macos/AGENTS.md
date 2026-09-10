@@ -8,6 +8,12 @@
   (except to build the underlying library as mentioned above).
   - Build: `macos/build.nu [--scheme Ghostty] [--configuration Debug] [--action build]`
   - Output: `macos/build/<configuration>/Ghostty.app` (e.g. `macos/build/Debug/Ghostty.app`)
+- Debug and ReleaseLocal configurations sign with the Apple Development
+  certificate of team DN3HDD448D. A stable signature is required so macOS
+  privacy grants (e.g. Local Network access, needed by ssh to LAN hosts)
+  survive rebuilds — ad-hoc signatures change every build and lose them.
+  For `zig build`, set `GHOSTTY_SIGN_TEAM=<team id>` to get the same
+  signing; without it the app is ad-hoc signed.
 - Run unit tests directly with `macos/build.nu --action test`
 
 ## AppleScript

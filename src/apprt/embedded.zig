@@ -1839,6 +1839,13 @@ pub const CAPI = struct {
         return surface.core_surface.mouseCaptured();
     }
 
+    /// Returns true if the surface is currently showing the alternate
+    /// screen (e.g. tmux, vim). Callers must not inject shell commands
+    /// into the alternate screen since no shell is reading stdin there.
+    export fn ghostty_surface_alt_screen_active(surface: *Surface) bool {
+        return surface.core_surface.altScreenActive();
+    }
+
     /// Tell the surface that it needs to schedule a render
     export fn ghostty_surface_mouse_button(
         surface: *Surface,

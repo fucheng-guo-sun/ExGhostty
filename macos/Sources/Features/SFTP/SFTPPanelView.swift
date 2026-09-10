@@ -21,6 +21,8 @@ final class SFTPPanelViewModel: ObservableObject {
     weak var taskListWindowController: SFTPTaskListWindowController?
 
     private var cancellables = Set<AnyCancellable>()
+    /// 打开面板时目录同步注入的重试任务（关闭面板时取消）。
+    private var directorySyncTask: Task<Void, Never>?
     /// 任务状态订阅（任务数组本身只在增删时发布，状态变化需单独订阅）。
     private var taskStateCancellables = Set<AnyCancellable>()
     /// 远端用户主目录，用于把标题中的 `~` 展开为绝对路径。
@@ -160,12 +162,48 @@ final class SFTPPanelViewModel: ObservableObject {
     /// 2. printf 输出尾部附带擦除序列：回车产生的新行和命令回显所在行都会被清除，
     ///    shell 随后在原位置打印新提示符——终端里不会留下这条命令的痕迹。
     ///    上报后由 currentDirectoryURL 的订阅完成跳转。
+    ///
+    /// 注入有副作用（等于向终端敲入一行命令），只在终端处于空闲 shell 提示符时执行：
+    /// - 备用屏幕（tmux/vim 等）或鼠标被捕获时绝不注入——没有 shell 在读 stdin，
+    ///   注入文本会污染 TUI 界面、破坏其重绘与颜色；
+    /// - 用户最近 1.2s 内有键盘输入时等待——避免注入文本被密码提示等吞掉；
+    /// - 面板过窄（<100 列）时命令回显折行，擦除序列清不干净，放弃注入；
+    /// - SSH 握手需要时间，首次检查后每 0.5s 重试，最长约 15s，超时静默放弃
+    ///   （面板停留在 home 目录，用户可手动导航）。
     func syncWorkingDirectoryFromTerminal() {
-        DispatchQueue.main.async { [weak self] in
-            guard let surface = self?.terminalController?.focusedSurface?.surfaceModel else { return }
-            surface.sendText(#"printf '\033]7;file://localhost%s\007\033[K\033[1A\033[K' "$PWD""#)
-            surface.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .press, text: "\r"))
+        directorySyncTask?.cancel()
+        directorySyncTask = Task { [weak self] in
+            // 前 2s 不注入，避开 SSH 横幅/认证窗口（免密或 askpass 场景无键盘输入）。
+            try? await Task.sleep(nanoseconds: 2_000_000_000)
+            for _ in 0..<26 {
+                if Task.isCancelled { return }
+                let injected = await MainActor.run { [weak self] in
+                    self?.tryInjectWorkingDirectoryReport() ?? false
+                }
+                if injected { return }
+                try? await Task.sleep(nanoseconds: 500_000_000)
+            }
         }
+    }
+
+    /// 取消待执行的目录同步注入（面板关闭时调用）。
+    func cancelDirectorySync() {
+        directorySyncTask?.cancel()
+        directorySyncTask = nil
+    }
+
+    /// 条件全部满足时执行一次注入，返回是否已注入。
+    @MainActor
+    private func tryInjectWorkingDirectoryReport() -> Bool {
+        guard let surfaceView = terminalController?.focusedSurface,
+              let surface = surfaceView.surfaceModel else { return false }
+        guard !surface.isAltScreen, !surface.mouseCaptured else { return false }
+        guard Date().timeIntervalSince(surfaceView.lastKeyboardInputAt) > 1.2 else { return false }
+        let cellWidth = surfaceView.cellSize.width
+        guard cellWidth > 0, surfaceView.bounds.width / cellWidth >= 100 else { return false }
+        surface.sendText(#"printf '\033]7;file://localhost%s\007\033[K\033[1A\033[K' "$PWD""#)
+        surface.sendKeyEvent(Ghostty.Input.KeyEvent(key: .enter, action: .press, text: "\r"))
+        return true
     }
 
     /// 上一级目录路径；当前位于根目录时为 nil。
@@ -756,6 +794,7 @@ struct SFTPPanelView: View {
         }
         .onDisappear {
             viewModel.stopAutoRefresh()
+            viewModel.cancelDirectorySync()
         }
         // 从 Finder 拖入到列表空白区域（或面板其他非行区域）：上传到当前目录。
         // 注：直接挂在 SwiftUI List 上的 onDrop 无法覆盖空白区域，因此挂在外层容器。

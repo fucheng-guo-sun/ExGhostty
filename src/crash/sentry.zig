@@ -136,8 +136,10 @@ fn initThread(gpa: Allocator) !void {
         cache_dir.len,
     );
 
-    if (comptime builtin.mode == .Debug) {
-        // Debug logging for Sentry
+    // Debug logging for Sentry is opt-in: the native SDK writes its internal
+    // logs to stderr, which pollutes the terminal on every CLI invocation
+    // (e.g. `ghostty +ssh` from shell integration).
+    if (std.posix.getenv("GHOSTTY_SENTRY_DEBUG") != null) {
         sentry.c.sentry_options_set_debug(opts, @intFromBool(true));
     }
 

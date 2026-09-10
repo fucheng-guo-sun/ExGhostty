@@ -133,6 +133,10 @@ pub const Options = struct {
 ///      step. When terminfo is successfully installed or already cached,
 ///      `TERM` is set to `xterm-ghostty` instead of `xterm-256color`.
 ///
+/// When the local `TERM` is not `xterm-ghostty` — e.g. `term` is set to
+/// another value in the config, or inside tmux — both steps are skipped
+/// and the local `TERM` is forwarded unchanged.
+///
 /// If `--terminfo` install fails (e.g. `tic` not available on the
 /// remote, filesystem permissions), a warning is logged and the
 /// connection continues with `TERM=xterm-256color`.
@@ -234,6 +238,15 @@ fn runInner(
         term: []const u8,
         to_cache: ?struct { cache: DiskCache, dest: []const u8 } = null,
     } = session: {
+        // If the local TERM is not xterm-ghostty — e.g. the user set
+        // `term` to another value in the config, or we're inside tmux —
+        // installing the xterm-ghostty terminfo and rewriting TERM would
+        // clobber that choice, so forward the local TERM unchanged.
+        if (termOverride(std.posix.getenv("TERM") orelse "")) |term| {
+            verbosePrint(opts, stderr, "TERM is {s}, not xterm-ghostty; skipping terminfo install", .{term});
+            break :session .{ .term = term };
+        }
+
         if (!opts.terminfo) break :session .{ .term = "xterm-256color" };
 
         const dest = resolveDestination(alloc, opts.ssh, opts._ssh_args.items) orelse {
@@ -312,6 +325,16 @@ fn runInner(
     return exit_code;
 }
 
+/// Returns the given TERM when it is something other than
+/// xterm-ghostty, meaning the caller should forward it unchanged and
+/// skip all xterm-ghostty terminfo handling. Returns null when TERM is
+/// empty or already xterm-ghostty.
+fn termOverride(term: []const u8) ?[]const u8 {
+    if (term.len == 0) return null;
+    if (std.mem.eql(u8, term, "xterm-ghostty")) return null;
+    return term;
+}
+
 /// Log to `.ssh` and, if `--verbose`, also print to stderr.
 fn verbosePrint(
     opts: *const Options,
@@ -367,6 +390,19 @@ const Joined = struct {
         }
     }
 };
+
+test "termOverride: non-ghostty TERM is forwarded unchanged" {
+    const testing = std.testing;
+    try testing.expectEqualStrings("xterm", termOverride("xterm").?);
+    try testing.expectEqualStrings("xterm-256color", termOverride("xterm-256color").?);
+    try testing.expectEqualStrings("screen-256color", termOverride("screen-256color").?);
+}
+
+test "termOverride: ghostty TERM and empty TERM return null" {
+    const testing = std.testing;
+    try testing.expectEqual(@as(?[]const u8, null), termOverride("xterm-ghostty"));
+    try testing.expectEqual(@as(?[]const u8, null), termOverride(""));
+}
 
 fn checkExit(term: std.process.Child.Term, label: []const u8) error{ChildFailed}!void {
     switch (term) {

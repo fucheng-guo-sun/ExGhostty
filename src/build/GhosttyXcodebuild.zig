@@ -69,9 +69,30 @@ pub fn init(
             "ExGhostty",
             "-configuration",
             xc_config,
-            "CODE_SIGN_IDENTITY=-",
-            "CODE_SIGNING_ALLOWED=NO",
         });
+
+        // Ad-hoc sign by default so builds work without a certificate.
+        // Set GHOSTTY_SIGN_TEAM to an Apple Development team ID to sign
+        // with a stable identity instead: macOS tracks privacy
+        // permissions (TCC) by code signature, and ad-hoc signatures
+        // change every build, so grants like Local Network access —
+        // which ssh to LAN hosts requires — are lost on each rebuild.
+        const sign_team: ?[]const u8 = if (env.get("GHOSTTY_SIGN_TEAM")) |team|
+            (if (team.len > 0) team else null)
+        else
+            null;
+        if (sign_team) |team| {
+            step.addArgs(&.{
+                "CODE_SIGNING_ALLOWED=YES",
+                "CODE_SIGN_IDENTITY=Apple Development",
+                b.fmt("DEVELOPMENT_TEAM={s}", .{team}),
+            });
+        } else {
+            step.addArgs(&.{
+                "CODE_SIGN_IDENTITY=-",
+                "CODE_SIGNING_ALLOWED=NO",
+            });
+        }
 
         // If we have a specific architecture, we need to pass it
         // to xcodebuild.

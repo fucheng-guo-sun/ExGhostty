@@ -1,3 +1,4 @@
+import AppKit
 import Foundation
 
 /// 为 SSH / Telnet 连接构建终端 surface 配置（expect 包装命令 + 环境变量）。
@@ -19,15 +20,28 @@ enum RemoteSurfaceConfiguration {
         }
     }
 
+    /// 读取设置窗口配置的 term 值（Terminal -> Term）。直接从配置文件读取，
+    /// 保证新开的 SSH/Telnet 会话总是使用最新设置，即使应用内配置尚未重载。
+    /// 未设置时回退到 xterm-256color（SSH 场景兼容性最好的默认值）。
+    private static func configuredTerm() -> String {
+        if let url = (NSApp.delegate as? AppDelegate)?.ghostty.configFileURL,
+           let value = ConfigFileWriter(url: url).firstValue(for: "term"),
+           !value.isEmpty {
+            return value
+        }
+        return "xterm-256color"
+    }
+
     // MARK: - SSH
 
     private static func makeSSH(_ conn: SSHConnection, gridSize: (rows: Int, cols: Int)) -> Ghostty.SurfaceConfiguration {
         var cfg = Ghostty.SurfaceConfiguration()
+        let term = configuredTerm()
 
         // 把当前终端的真实行列数传给 expect，避免 expect 子进程读到的 stdin 尺寸错误。
         cfg.environmentVariables["GHOSTTY_ROWS"] = "\(gridSize.rows)"
         cfg.environmentVariables["GHOSTTY_COLS"] = "\(gridSize.cols)"
-        cfg.environmentVariables["TERM"] = "xterm-256color"
+        cfg.environmentVariables["TERM"] = term
 
         let scriptURL = FileManager.default.temporaryDirectory
             .appendingPathComponent("ghostty_ssh_\(conn.id.uuidString).exp")
@@ -140,10 +154,14 @@ enum RemoteSurfaceConfiguration {
         // 含有远端引导命令，不应展示）；随后立即恢复输出，SSH 横幅、首次连接的
         // 主机密钥确认提示等均保持可见。
         var expectScript = useAskpass ? "set timeout 15\n" : ""
+        // 核心（termio/Exec.zig）会用 surface 配置里的 term 无条件覆盖 PTY 环境
+        // 变量的 TERM，apprt 侧设置的 TERM 不会生效；因此在 expect 脚本内显式
+        // set env(TERM)，保证 ssh 子进程一定把设置窗口配置的 term 发送给远端。
         expectScript += syncPtyProc + "\n"
         expectScript += """
         trap {} SIGTERM
         trap {} SIGINT
+        set env(TERM) "\(term.tclEscaped)"
         while {1} {
 
         """
@@ -196,7 +214,8 @@ enum RemoteSurfaceConfiguration {
         guard let telnetPath = resolveTelnetExecutable() else { return nil }
 
         var cfg = Ghostty.SurfaceConfiguration()
-        cfg.environmentVariables["TERM"] = "xterm-256color"
+        let term = configuredTerm()
+        cfg.environmentVariables["TERM"] = term
         let portArg = conn.port == 23 ? "" : " \(conn.port)"
 
         let scriptURL = FileManager.default.temporaryDirectory
@@ -208,6 +227,7 @@ enum RemoteSurfaceConfiguration {
 
         let expectScript = """
         set timeout 10
+        set env(TERM) "\(term.tclEscaped)"
         spawn \(telnetPath) \(conn.host)\(portArg)
 
         # 某些 Telnet 服务（如 Ubuntu 的 PAM）连接后会先出现一个假的 Password: 提示，

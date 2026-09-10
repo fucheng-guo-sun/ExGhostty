@@ -1977,7 +1977,7 @@ const Action = struct {
         defer notification.unref();
         notification.setBody(n.body);
 
-        const icon = gio.ThemedIcon.new("com.mitchellh.ghostty");
+        const icon = gio.ThemedIcon.new("com.xjai.exghostty");
         defer icon.unref();
         notification.setIcon(icon.as(gio.Icon));
         notification.setDefaultActionAndTargetValue(
