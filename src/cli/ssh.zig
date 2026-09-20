@@ -311,6 +311,7 @@ fn runInner(
         try stderr.print("Error: failed to run {s}: {}\n", .{ argv[0], err });
         return 1;
     };
+    resetTerminalModes();
     verbosePrint(opts, stderr, "exit: {d}", .{exit_code});
 
     // Attempt to cache (if needed) on a successful ssh execution.
@@ -548,6 +549,21 @@ fn installRemoteTerminfo(
         return error.InstallFailed;
     };
     checkExit(term, "terminfo install") catch return error.InstallFailed;
+}
+
+/// Reset terminal modes the remote side may have left enabled when ssh
+/// exits (connection drop, remote tmux killed mid-session, etc.). Mouse
+/// reporting, focus reporting, bracketed paste and the alternate screen
+/// do not reset themselves when the connection dies; a stuck mouse mode
+/// turns every click into garbage input at the next shell prompt.
+/// No-ops for modes that are already off.
+fn resetTerminalModes() void {
+    const stdout: std.posix.fd_t = std.posix.STDOUT_FILENO;
+    if (!std.posix.isatty(stdout)) return;
+    const seq = "\x1b[?1003l\x1b[?1002l\x1b[?1000l" ++
+        "\x1b[?1006l\x1b[?1015l\x1b[?1016l" ++
+        "\x1b[?1004l\x1b[?2004l\x1b[?1049l";
+    _ = std.posix.write(stdout, seq) catch {};
 }
 
 /// Returns `128 + signum` for signal-killed children, matching shell convention.

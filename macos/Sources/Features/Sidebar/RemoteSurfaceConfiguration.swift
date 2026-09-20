@@ -184,6 +184,11 @@ enum RemoteSurfaceConfiguration {
         }
         expectScript += """
             interact
+            # ssh 断开（掉线或远端 shell 退出）后，远端程序（如 tmux）开启的鼠标
+            # 上报/焦点上报/括号粘贴/备用屏幕等模式不会随连接关闭自动复位；
+            # 残留状态下鼠标点击会被编码成控制序列发给远端 shell，回显为垃圾字符。
+            # 在提示重连前主动复位这些模式。
+            send_user "\\033\\[?1003l\\033\\[?1002l\\033\\[?1000l\\033\\[?1006l\\033\\[?1015l\\033\\[?1016l\\033\\[?1004l\\033\\[?2004l\\033\\[?1049l"
             puts ""
             puts "\(reconnectPrompt)"
             expect_user -re . {}
