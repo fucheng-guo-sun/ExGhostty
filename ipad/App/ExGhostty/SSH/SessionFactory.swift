@@ -36,10 +36,15 @@ enum SessionFactory {
     }
 
     private static func resolvePrivateKey(for config: SSHConnectionConfig) -> NIOSSHPrivateKey? {
+        // A nil passphrase behaves exactly like before (unencrypted keys);
+        // jump-host credentials go through this same function, so encrypted
+        // jump keys are supported too.
         guard config.authMode == .key,
               let keyID = config.keyID,
               let text = SSHKeyStore.shared.keyText(for: keyID),
-              let parsed = try? SSHKeyParser.parse(text) else {
+              let parsed = try? SSHKeyParser.parse(
+                  text, passphrase: KeychainHelper.keyPassphrase(for: config.id)
+              ) else {
             return nil
         }
         return parsed.key

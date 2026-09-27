@@ -32,8 +32,18 @@
 		75247796245897E3001B12E7 /* SwiftTerm */ = {isa = PBXFileReference; lastKnownFileType = folder; name = SwiftTerm; path = ..; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		9243EC2B3068AEC500F0A1C7 /* PBXFileSystemSynchronizedBuildFileExceptionSet */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 49BD1A59224207B5005A2252 /* ExGhostty */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
+
 /* Begin PBXFileSystemSynchronizedRootGroup section */
-		49BD1A5C224207B5005A2252 /* ExGhostty */ = {isa = PBXFileSystemSynchronizedRootGroup; explicitFileTypes = {}; explicitFolders = (); path = ExGhostty; sourceTree = "<group>"; };
+		49BD1A5C224207B5005A2252 /* ExGhostty */ = {isa = PBXFileSystemSynchronizedRootGroup; exceptions = (9243EC2B3068AEC500F0A1C7 /* PBXFileSystemSynchronizedBuildFileExceptionSet */, ); explicitFileTypes = {}; explicitFolders = (); path = ExGhostty; sourceTree = "<group>"; };
 /* End PBXFileSystemSynchronizedRootGroup section */
 
 /* Begin PBXFrameworksBuildPhase section */
@@ -116,8 +126,9 @@
 		49BD1A52224207B4005A2252 /* Project object */ = {
 			isa = PBXProject;
 			attributes = {
+				BuildIndependentTargetsInParallel = YES;
 				LastSwiftUpdateCheck = 1130;
-				LastUpgradeCheck = 1010;
+				LastUpgradeCheck = 2700;
 				ORGANIZATIONNAME = "Miguel de Icaza";
 				TargetAttributes = {
 					49BD1A59224207B5005A2252 = {
@@ -197,6 +208,7 @@
 				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
 				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
 				CLANG_WARN_STRICT_PROTOTYPES = YES;
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
@@ -206,8 +218,10 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = DN3HDD448D;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_DYNAMIC_NO_PIC = NO;
 				GCC_NO_COMMON_BLOCKS = YES;
@@ -228,6 +242,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
 				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
 			};
@@ -259,6 +274,7 @@
 				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
 				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
 				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
 				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
 				CLANG_WARN_STRICT_PROTOTYPES = YES;
 				CLANG_WARN_SUSPICIOUS_MOVE = YES;
@@ -268,8 +284,10 @@
 				CODE_SIGN_IDENTITY = "iPhone Developer";
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = DN3HDD448D;
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_USER_SCRIPT_SANDBOXING = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
 				GCC_NO_COMMON_BLOCKS = YES;
 				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
@@ -284,6 +302,7 @@
 				MTL_FAST_MATH = YES;
 				ONLY_ACTIVE_ARCH = YES;
 				SDKROOT = iphoneos;
+				STRING_CATALOG_GENERATE_SYMBOLS = YES;
 				SWIFT_COMPILATION_MODE = wholemodule;
 				SWIFT_OPTIMIZATION_LEVEL = "-O";
 				VALIDATE_PRODUCT = YES;
@@ -298,7 +317,6 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = DN3HDD448D;
 				EXCLUDED_SOURCE_FILE_NAMES = (
 					Info.plist,
 					"*.entitlements",
@@ -310,7 +328,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.12;
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
+				MARKETING_VERSION = 0.1.19;
 				PRODUCT_BUNDLE_IDENTIFIER = com.xjai.exghostty.ipad;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";
@@ -331,7 +350,6 @@
 				CODE_SIGN_IDENTITY = "Apple Development";
 				CODE_SIGN_STYLE = Automatic;
 				CURRENT_PROJECT_VERSION = 1;
-				DEVELOPMENT_TEAM = DN3HDD448D;
 				EXCLUDED_SOURCE_FILE_NAMES = (
 					Info.plist,
 					"*.entitlements",
@@ -343,7 +361,8 @@
 					"$(inherited)",
 					"@executable_path/Frameworks",
 				);
-				MARKETING_VERSION = 0.1.12;
+				MACOSX_DEPLOYMENT_TARGET = "$(RECOMMENDED_MACOSX_DEPLOYMENT_TARGET)";
+				MARKETING_VERSION = 0.1.19;
 				PRODUCT_BUNDLE_IDENTIFIER = com.xjai.exghostty.ipad;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				PROVISIONING_PROFILE_SPECIFIER = "";

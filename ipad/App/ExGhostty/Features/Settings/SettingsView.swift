@@ -5,8 +5,9 @@
 //  Settings page with the Mac version's split layout: a category list on
 //  the left and the detail pane on the right. Categories: General
 //  (language / editor), Theme (574 bundled ghostty themes, applied live),
-//  Appearance (bundled fonts + size), AI, Keys and About (author info and
-//  project links, modeled on the Mac About dialog).
+//  Appearance (bundled fonts + size), Terminal (PTY TERM value), AI,
+//  Keys and About (author info and project links, modeled on the Mac
+//  About dialog).
 //  Settings apply live (UserDefaults-backed stores), so the top-left back
 //  button just pops the page; no explicit save step is needed.
 //
@@ -80,6 +81,7 @@ struct SettingsView: View {
         case .general: generalSection
         case .theme: themeSection
         case .appearance: appearanceSection
+        case .terminal: terminalSection
         case .ai: aiSection
         case .keys: keysSection
         case .about: AboutSettingsView()
@@ -183,8 +185,30 @@ struct SettingsView: View {
         }
     }
 
-    // MARK: - AI
+    // MARK: - 终端
 
+    /// TERM values offered in the picker (default: xterm-256color).
+    private static let terminalTypes = [
+        "xterm-256color", "xterm", "xterm-color", "vt100", "linux", "screen", "tmux-256color",
+    ]
+
+    private var terminalSection: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            sectionHeader(L("终端"))
+
+            settingsRow(label: "TERM") {
+                Picker("", selection: $settings.terminalType) {
+                    ForEach(Self.terminalTypes, id: \.self) { type in
+                        Text(type).tag(type)
+                    }
+                }
+                .pickerStyle(.menu)
+            }
+            hintText(L("SSH 会话请求 PTY 时向远端报告的终端类型。"))
+        }
+    }
+
+    // MARK: - AI
     private var aiSection: some View {
         VStack(alignment: .leading, spacing: 20) {
             sectionHeader(L("AI 助手"))
@@ -261,7 +285,7 @@ struct SettingsView: View {
 // MARK: - 分类
 
 enum SettingsCategory: String, CaseIterable, Identifiable {
-    case general, theme, appearance, ai, keys, about
+    case general, theme, appearance, terminal, ai, keys, about
 
     var id: String { rawValue }
 
@@ -270,6 +294,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .general: return "通用"
         case .theme: return "主题"
         case .appearance: return "外观"
+        case .terminal: return "终端"
         case .ai: return "AI 助手"
         case .keys: return "密钥"
         case .about: return "关于"
@@ -281,6 +306,7 @@ enum SettingsCategory: String, CaseIterable, Identifiable {
         case .general: return "gearshape"
         case .theme: return "paintpalette"
         case .appearance: return "paintbrush"
+        case .terminal: return "terminal"
         case .ai: return "cpu"
         case .keys: return "key"
         case .about: return "info.circle"

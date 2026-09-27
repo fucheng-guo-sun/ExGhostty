@@ -5,6 +5,10 @@
 //  SwiftTerm TerminalView bound to a shell child channel of an SSHSession.
 //  Also hides the on-screen accessory bar (esc/ctrl …) while a hardware
 //  keyboard is attached (GCKeyboard), restoring it on disconnect.
+//  Desktop access (config.desktopAccess, sshdesk): the channel requests a
+//  PTY as usual but then issues an exec request for the remote `desktop`
+//  command instead of a shell, and the sudo identity switch is skipped
+//  (a desktop session is not a shell).
 //
 
 import Foundation
@@ -21,17 +25,21 @@ private final class SSHShellChannelHandler: ChannelInboundHandler {
     private let term: String
     private let environment: [String: String]
     private let initialWindowSize: (cols: Int, rows: Int)
+    /// Remote command to exec instead of a shell (desktop access); nil = shell.
+    private let command: String?
 
     init(
         terminalView: SshTerminalView?,
         term: String,
         environment: [String: String],
-        initialWindowSize: (cols: Int, rows: Int)
+        initialWindowSize: (cols: Int, rows: Int),
+        command: String?
     ) {
         self.terminalView = terminalView
         self.term = term
         self.environment = environment
         self.initialWindowSize = initialWindowSize
+        self.command = command
     }
 
     func handlerAdded(context: ChannelHandlerContext) {
@@ -57,7 +65,15 @@ private final class SSHShellChannelHandler: ChannelInboundHandler {
             context.triggerUserOutboundEvent(env, promise: nil)
         }
 
-        context.triggerUserOutboundEvent(SSHChannelRequestEvent.ShellRequest(wantReply: false), promise: nil)
+        if let command {
+            // Desktop access: PTY + exec `desktop` (ssh -t … desktop), no shell.
+            context.triggerUserOutboundEvent(
+                SSHChannelRequestEvent.ExecRequest(command: command, wantReply: false),
+                promise: nil
+            )
+        } else {
+            context.triggerUserOutboundEvent(SSHChannelRequestEvent.ShellRequest(wantReply: false), promise: nil)
+        }
     }
 
     func channelRead(context: ChannelHandlerContext, data: NIOAny) {
@@ -150,8 +166,9 @@ public class SshTerminalView: TerminalView, TerminalViewDelegate {
         let terminal = getTerminal()
         let cols = terminal.cols > 0 ? terminal.cols : 80
         let rows = terminal.rows > 0 ? terminal.rows : 24
-        let term = "xterm-256color"
+        let term = SettingsStore.shared.terminalType
         let environment = ["LANG": session.config.encoding.langEnvironment]
+        let command = session.config.desktopAccess ? "desktop" : nil
 
         session.createChildChannel { [weak self] channel in
             channel.eventLoop.makeCompletedFuture {
@@ -161,7 +178,8 @@ public class SshTerminalView: TerminalView, TerminalViewDelegate {
                         terminalView: self,
                         term: term,
                         environment: environment,
-                        initialWindowSize: (cols: cols, rows: rows)
+                        initialWindowSize: (cols: cols, rows: rows),
+                        command: command
                     )
                 )
             }
@@ -178,8 +196,11 @@ public class SshTerminalView: TerminalView, TerminalViewDelegate {
                 DispatchQueue.main.async {
                     let terminal = self.getTerminal()
                     self.resizeRemote(cols: terminal.cols, rows: terminal.rows)
-                    self.becomeFirstResponder()
-                    self.scheduleIdentitySwitchIfNeeded()
+                    _ = self.becomeFirstResponder()
+                    // 桌面会话执行的是 desktop 命令而非 shell，不做 sudo 身份切换。
+                    if !session.config.desktopAccess {
+                        self.scheduleIdentitySwitchIfNeeded()
+                    }
                 }
             }
         }

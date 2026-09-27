@@ -28,7 +28,7 @@ import Combine
 /// 发出首次 read 启动流水线。
 
 /// SSH 侧：读 SSHChannelData 写给对端 TCP。
-private final class SSHSideRelayHandler: ChannelInboundHandler {
+private final class SSHSideRelayHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = SSHChannelData
 
     private var peer: Channel?
@@ -334,6 +334,7 @@ final class PortForwardRuntime {
 
     private(set) var isIntentionallyStopped = true
 
+    
     private var session: SSHSession?
     private var listenerGroup: MultiThreadedEventLoopGroup?
     private var listener: Channel?

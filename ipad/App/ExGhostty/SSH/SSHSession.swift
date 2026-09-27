@@ -229,7 +229,7 @@ private final class StreamingExecHandler: ChannelInboundHandler {
 
 // MARK: - SSHSession
 
-final class SSHSession: ObservableObject {
+final class SSHSession: ObservableObject, @unchecked Sendable {
     enum ConnectionState: Equatable {
         case idle
         case connecting
@@ -357,18 +357,19 @@ final class SSHSession: ObservableObject {
     private func openTransport(
         host: String,
         port: Int,
-        authDelegate: NIOSSHClientUserAuthenticationDelegate,
+        authDelegate: any NIOSSHClientUserAuthenticationDelegate,
         inboundForwarding: Bool = false
     ) async throws -> Channel {
         guard let group else { throw SSHSessionError.notConnected }
-
+        nonisolated(unsafe) let safeDelegate = authDelegate
+        
         let bootstrap = ClientBootstrap(group: group)
             .channelInitializer { [weak self] channel in
                 channel.eventLoop.makeCompletedFuture {
                     guard let self else { return }
                     try self.installSSHHandlers(
                         on: channel,
-                        authDelegate: authDelegate,
+                        authDelegate: safeDelegate,
                         inboundForwarding: inboundForwarding
                     )
                 }
@@ -582,9 +583,12 @@ final class SSHSession: ObservableObject {
     func requestRemoteForward(listenHost: String, listenPort: Int) async throws {
         guard let transport, transport.isActive else { throw SSHSessionError.notConnected }
         let sshHandler = try await transport.pipeline.handler(type: NIOSSHHandler.self).get()
+        
+        nonisolated(unsafe) let safeHandler = sshHandler
+        
         let promise = transport.eventLoop.makePromise(of: GlobalRequest.TCPForwardingResponse?.self)
         transport.eventLoop.execute {
-            sshHandler.sendTCPForwardingRequest(
+            safeHandler.sendTCPForwardingRequest(
                 .listen(host: listenHost, port: listenPort),
                 promise: promise
             )
@@ -645,7 +649,7 @@ final class SSHSession: ObservableObject {
         transport = nil
         jumpTransport = nil
         Task {
-            let current = await state
+            let current = state
             if current == .connected || current == .connecting {
                 await setState(.closed)
             }

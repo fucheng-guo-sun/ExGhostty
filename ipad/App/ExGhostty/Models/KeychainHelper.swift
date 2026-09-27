@@ -79,6 +79,24 @@ enum KeychainHelper {
         delete(service: identityService, account: id.uuidString)
     }
 
+    // MARK: - Private key passphrases
+
+    /// Per-connection passphrase used to decrypt an encrypted private key
+    /// (distinct from the login password and the sudo password).
+    private static let keyPassService = "\(servicePrefix).keypass"
+
+    static func saveKeyPassphrase(_ passphrase: String, for id: UUID) {
+        save(Data(passphrase.utf8), service: keyPassService, account: id.uuidString)
+    }
+
+    static func keyPassphrase(for id: UUID) -> String? {
+        read(service: keyPassService, account: id.uuidString)
+    }
+
+    static func deleteKeyPassphrase(for id: UUID) {
+        delete(service: keyPassService, account: id.uuidString)
+    }
+
     // MARK: - Shared implementation
 
     /// Deletes the item from both the current and the legacy service, so

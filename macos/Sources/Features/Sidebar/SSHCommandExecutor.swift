@@ -235,6 +235,7 @@ actor SSHCommandExecutor {
             connection.username,
             connection.authMode.rawValue,
             connection.keyPath ?? "",
+            connection.keyPassphrase,
             connection.jumpHostID?.uuidString ?? "",
             connection.password,
         ].joined(separator: "|")
@@ -300,19 +301,56 @@ private final class KeySSHBackend: BaseSSHBackend {
         guard FileManager.default.fileExists(atPath: "/usr/bin/ssh") else {
             throw SSHCommandError.commandNotFound("ssh")
         }
+        // 私钥不带 passphrase 时无需任何额外环境；带 passphrase 时经
+        // SSH_ASKPASS 自动应答解锁提示（后台执行没有 tty，ssh 无法交互询问）。
+        guard !connection.keyPassphrase.isEmpty else {
+            return SSHCommandInvocation(
+                executableURL: URL(fileURLWithPath: "/usr/bin/ssh"),
+                arguments: args,
+                environment: [:]
+            )
+        }
         return SSHCommandInvocation(
             executableURL: URL(fileURLWithPath: "/usr/bin/ssh"),
             arguments: args,
-            environment: [:]
+            environment: try SSHAskpassHelper.environment(secret: connection.keyPassphrase)
         )
+    }
+}
+
+// MARK: - SSH_ASKPASS 助手
+
+/// 生成 SSH_ASKPASS 助手脚本与对应环境变量，密码与私钥 passphrase 后端共用。
+enum SSHAskpassHelper {
+    private static var helperURLCache: URL?
+
+    static func environment(secret: String) throws -> [String: String] {
+        let helper = try helperURL()
+        var env = ProcessInfo.processInfo.environment
+        env["GHOSTTY_ASKPASS_PASSWORD"] = secret
+        env["SSH_ASKPASS"] = helper.path
+        env["SSH_ASKPASS_REQUIRE"] = "force"
+        return env
+    }
+
+    private static func helperURL() throws -> URL {
+        if let url = helperURLCache { return url }
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ghostty_ssh_askpass.sh")
+        let script = """
+        #!/bin/bash
+        printf '%s\\n' "$GHOSTTY_ASKPASS_PASSWORD"
+        """
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        helperURLCache = url
+        return url
     }
 }
 
 // MARK: - 密码登录后端
 
 private final class PasswordSSHBackend: BaseSSHBackend {
-    private var askpassHelperURLCache: URL?
-
     override func sshInvocation(args: [String]) throws -> SSHCommandInvocation {
         guard FileManager.default.fileExists(atPath: "/usr/bin/ssh") else {
             throw SSHCommandError.commandNotFound("ssh")
@@ -320,11 +358,7 @@ private final class PasswordSSHBackend: BaseSSHBackend {
         guard !connection.password.isEmpty else {
             throw SSHCommandError.executionFailed(command: "ssh", stdout: "", stderr: "Password is empty".localized, status: 1)
         }
-        let helper = try askpassHelperURL()
-        var env = ProcessInfo.processInfo.environment
-        env["GHOSTTY_ASKPASS_PASSWORD"] = connection.password
-        env["SSH_ASKPASS"] = helper.path
-        env["SSH_ASKPASS_REQUIRE"] = "force"
+        let env = try SSHAskpassHelper.environment(secret: connection.password)
         return SSHCommandInvocation(
             executableURL: URL(fileURLWithPath: "/usr/bin/ssh"),
             arguments: args,
@@ -339,19 +373,5 @@ private final class PasswordSSHBackend: BaseSSHBackend {
         // 导致控制通道建立失败（SFTP 上传/下载报错）。
         // 已实测：ssh -f 后台化会正确脱离标准输出/错误管道，不会造成读取方挂起。
         return try sshInvocation(args: args)
-    }
-
-    private func askpassHelperURL() throws -> URL {
-        if let url = askpassHelperURLCache { return url }
-        let url = FileManager.default.temporaryDirectory
-            .appendingPathComponent("ghostty_ssh_askpass.sh")
-        let script = """
-        #!/bin/bash
-        printf '%s\\n' "$GHOSTTY_ASKPASS_PASSWORD"
-        """
-        try script.write(to: url, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
-        askpassHelperURLCache = url
-        return url
     }
 }

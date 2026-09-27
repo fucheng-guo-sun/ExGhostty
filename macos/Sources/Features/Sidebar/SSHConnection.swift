@@ -89,6 +89,8 @@ struct SSHConnection: Identifiable, Codable, Hashable {
     var connectionPassword: String
     /// 密钥登录时的密钥文件路径
     var keyPath: String?
+    /// 私钥密码（passphrase，可选；内存中为明文，持久化时经 AES 加密存储）
+    var keyPassphrase: String
 
     /// 连接方式
     var connectionMethod: SSHConnectionMethod
@@ -142,6 +144,7 @@ struct SSHConnection: Identifiable, Codable, Hashable {
             password: password,
             connectionPassword: connectionPassword,
             keyPath: keyPath,
+            keyPassphrase: keyPassphrase,
             connectionMethod: connectionMethod,
             jumpHostID: jumpHostID,
             notes: notes,
@@ -168,6 +171,7 @@ struct SSHConnection: Identifiable, Codable, Hashable {
         password: String = "",
         connectionPassword: String = "",
         keyPath: String? = nil,
+        keyPassphrase: String = "",
         connectionMethod: SSHConnectionMethod = .direct,
         jumpHostID: UUID? = nil,
         notes: String = "",
@@ -191,6 +195,7 @@ struct SSHConnection: Identifiable, Codable, Hashable {
         self.password = password
         self.connectionPassword = connectionPassword
         self.keyPath = keyPath
+        self.keyPassphrase = keyPassphrase
         self.connectionMethod = connectionMethod
         self.jumpHostID = jumpHostID
         self.notes = notes
@@ -217,6 +222,7 @@ struct SSHConnection: Identifiable, Codable, Hashable {
         self.password = PasswordCipher.decrypt(try container.decodeIfPresent(String.self, forKey: .password) ?? "")
         self.connectionPassword = PasswordCipher.decrypt(try container.decodeIfPresent(String.self, forKey: .connectionPassword) ?? "")
         self.keyPath = try container.decodeIfPresent(String.self, forKey: .keyPath)
+        self.keyPassphrase = PasswordCipher.decrypt(try container.decodeIfPresent(String.self, forKey: .keyPassphrase) ?? "")
         self.connectionMethod = {
             let raw = (try? container.decodeIfPresent(String.self, forKey: .connectionMethod)) ?? nil
             return SSHConnectionMethod(rawValue: raw ?? "") ?? .direct
@@ -247,6 +253,7 @@ struct SSHConnection: Identifiable, Codable, Hashable {
         try container.encode(PasswordCipher.encrypt(password), forKey: .password)
         try container.encode(PasswordCipher.encrypt(connectionPassword), forKey: .connectionPassword)
         try container.encodeIfPresent(keyPath, forKey: .keyPath)
+        try container.encode(PasswordCipher.encrypt(keyPassphrase), forKey: .keyPassphrase)
         try container.encode(connectionMethod, forKey: .connectionMethod)
         try container.encodeIfPresent(jumpHostID, forKey: .jumpHostID)
         try container.encode(notes, forKey: .notes)
@@ -262,7 +269,7 @@ struct SSHConnection: Identifiable, Codable, Hashable {
 
     private enum CodingKeys: String, CodingKey {
         case id, name, host, port, username, groupID, type
-        case authMode, password, connectionPassword, keyPath, connectionMethod, jumpHostID, notes
+        case authMode, password, connectionPassword, keyPath, keyPassphrase, connectionMethod, jumpHostID, notes
         case timeoutMs, heartbeatMs, encoding, x11Forwarding
         case desktopAccess
         case identitySwitchEnabled, identityUsername, identityPassword

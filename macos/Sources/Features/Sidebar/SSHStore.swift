@@ -264,6 +264,8 @@ class PortForwardStore: ObservableObject {
         var env = ProcessInfo.processInfo.environment
         if conn.authMode == .password, !conn.password.isEmpty {
             env["SSHPASS"] = conn.password
+        } else if conn.authMode == .key, !conn.keyPassphrase.isEmpty {
+            env["SSHPASS"] = conn.keyPassphrase
         }
         process.environment = env
 
@@ -628,7 +630,10 @@ class PortForwardStore: ObservableObject {
 
     private func makeExpectScript(rule: PortForwardRule, connection: SSHConnection) -> String {
         let sshArgs = sshArguments(rule: rule, connection: connection)
-        let hasPassword = connection.authMode == .password && !connection.password.isEmpty
+        // 密码登录的密码、密钥登录的私钥 passphrase 都经 expect 自动应答：
+        // 私钥带密码时 ssh 会先提示 "Enter passphrase for key ..."。
+        let hasPassword = (connection.authMode == .password && !connection.password.isEmpty)
+            || (connection.authMode == .key && !connection.keyPassphrase.isEmpty)
 
         if hasPassword {
             return """
@@ -646,6 +651,7 @@ class PortForwardStore: ObservableObject {
             trap { catch { exec kill -TERM $ssh_pid }; exit 0 } SIGTERM
             expect {
                 -nocase "password:" { send "$password\r" }
+                -nocase "passphrase" { send "$password\r" }
                 timeout { sshlog "password timeout"; exit 1 }
             }
             sshlog "authenticated, holding tunnel"

@@ -9,6 +9,8 @@ struct SSHTestConfig {
     let authMode: SSHAuthMode
     let password: String
     let keyPath: String?
+    /// 私钥密码（passphrase，可选）。非空时通过 SSH_ASKPASS 解锁私钥。
+    let keyPassphrase: String
     let connectionMethod: SSHConnectionMethod
     let jumpHost: SSHConnection?
     let timeoutMs: UInt32
@@ -111,6 +113,7 @@ enum SSHTester {
 
         emit(.step("Building SSH command".localized))
 
+        var askpassEnvironment: [String: String]?
         let targetDescription: String
         switch config.authMode {
         case .password:
@@ -144,7 +147,20 @@ enum SSHTester {
                     return
                 }
                 emit(.step(L("Using key authentication: %@", keyPath)))
-                sshArgs += ["-i", keyPath, "-o", "IdentitiesOnly=yes", "-o", "BatchMode=yes"]
+                sshArgs += ["-i", keyPath, "-o", "IdentitiesOnly=yes"]
+                if config.keyPassphrase.isEmpty {
+                    sshArgs += ["-o", "BatchMode=yes"]
+                } else {
+                    // 私钥带 passphrase：BatchMode 会禁止一切交互导致解锁失败，
+                    // 改用 SSH_ASKPASS 自动应答私钥密码提示。
+                    emit(.step("Key passphrase provided; using askpass to unlock the key".localized))
+                    do {
+                        askpassEnvironment = try makeAskpassEnvironment(secret: config.keyPassphrase)
+                    } catch {
+                        emit(.failure(error.localizedDescription))
+                        return
+                    }
+                }
                 targetDescription = "Key Authentication".localized
             } else {
                 emit(.step("No key specified; using BatchMode for connectivity test".localized))
@@ -166,7 +182,9 @@ enum SSHTester {
         let result = await runProcess(
             executable: "/usr/bin/ssh",
             args: sshArgs,
-            env: ["SSH_AUTH_SOCK": ""].merging(config.encodingEnvironment) { $1 },
+            env: (askpassEnvironment ?? [:])
+                .merging(["SSH_AUTH_SOCK": ""]) { $1 }
+                .merging(config.encodingEnvironment) { $1 },
             emit: emit
         )
 
@@ -194,7 +212,19 @@ enum SSHTester {
         if config.authMode == .password && !config.password.isEmpty {
             result = await testWithExpect(config: config, remoteCommand: "sshdesk-agent info", emit: emit)
         } else {
-            var sshArgs: [String] = ["-o", "BatchMode=yes"]
+            var sshArgs: [String] = []
+            var askpassEnvironment: [String: String]?
+            if config.authMode == .key, config.keyPath != nil, !config.keyPassphrase.isEmpty {
+                // 私钥带 passphrase：BatchMode 会禁止解锁私钥，改用 askpass 应答。
+                do {
+                    askpassEnvironment = try makeAskpassEnvironment(secret: config.keyPassphrase)
+                } catch {
+                    emit(.failure(error.localizedDescription))
+                    return
+                }
+            } else {
+                sshArgs += ["-o", "BatchMode=yes"]
+            }
             sshArgs += commonSSHOptions(config: config)
 
             if config.connectionMethod == .jumpHost, let jump = config.jumpHost {
@@ -218,7 +248,9 @@ enum SSHTester {
             result = await runProcess(
                 executable: "/usr/bin/ssh",
                 args: sshArgs,
-                env: ["SSH_AUTH_SOCK": ""].merging(config.encodingEnvironment) { $1 },
+                env: (askpassEnvironment ?? [:])
+                    .merging(["SSH_AUTH_SOCK": ""]) { $1 }
+                    .merging(config.encodingEnvironment) { $1 },
                 emit: emit
             )
         }
@@ -308,8 +340,25 @@ enum SSHTester {
         )
     }
 
-    private static func commonSSHOptions(config: SSHTestConfig) -> [String] {
-        var options: [String] = []
+    /// 写入（或复用）SSH_ASKPASS 助手脚本并返回应答私钥 passphrase 所需的环境变量。
+    /// 脚本内容与 SFTP 后端（PasswordSSHBackend/KeySSHBackend）共用的助手一致。
+    private static func makeAskpassEnvironment(secret: String) throws -> [String: String] {
+        let url = FileManager.default.temporaryDirectory
+            .appendingPathComponent("ghostty_ssh_askpass.sh")
+        let script = """
+        #!/bin/bash
+        printf '%s\\n' "$GHOSTTY_ASKPASS_PASSWORD"
+        """
+        try script.write(to: url, atomically: true, encoding: .utf8)
+        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: url.path)
+        return [
+            "GHOSTTY_ASKPASS_PASSWORD": secret,
+            "SSH_ASKPASS": url.path,
+            "SSH_ASKPASS_REQUIRE": "force",
+        ]
+    }
+
+    private static func commonSSHOptions(config: SSHTestConfig) -> [String] {        var options: [String] = []
         let timeoutSec = max(1, Double(config.timeoutMs) / 1000.0)
         options += ["-o", "ConnectTimeout=\(timeoutSec)"]
         if config.heartbeatMs > 0 {

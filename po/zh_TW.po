@@ -1590,3 +1590,12 @@ msgstr "連線與桌面存取測試通過（sshdesk 服務可用）"
 
 msgid "Connection test passed, but desktop access test failed: sshdesk service is not available on the target host"
 msgstr "連線測試通過，但桌面存取測試失敗：目標主機上的 sshdesk 服務不可用"
+
+msgid "Key Passphrase (optional)"
+msgstr "私鑰密碼（可選）"
+
+msgid "Leave empty if the key has no passphrase"
+msgstr "如果私鑰沒有密碼，請留空"
+
+msgid "Key passphrase provided; using askpass to unlock the key"
+msgstr "已提供私鑰密碼；將使用 askpass 解鎖私鑰"

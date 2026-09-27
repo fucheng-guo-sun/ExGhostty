@@ -21,6 +21,8 @@ struct ConnectionEditView: View {
     @State private var password: String
     @State private var authMode: SSHAuthMode
     @State private var keyID: UUID?
+    @State private var keyPassphrase: String
+    @State private var desktopAccess: Bool
     @State private var jumpHostID: UUID?
     @State private var group: String
     @State private var encoding: ConnectionEncoding
@@ -28,6 +30,8 @@ struct ConnectionEditView: View {
     @State private var identitySwitchEnabled: Bool
     @State private var identityUsername: String
     @State private var identityPassword: String
+    /// 非 nil 时弹出「测试连接」sheet，内容即点击按钮那一刻的表单快照。
+    @State private var testInput: TestConnectionInput?
 
     @StateObject private var store = ConnectionStore.shared
     @StateObject private var keyStore = SSHKeyStore.shared
@@ -42,6 +46,9 @@ struct ConnectionEditView: View {
         _password = State(initialValue: "")
         _authMode = State(initialValue: connection?.authMode ?? .password)
         _keyID = State(initialValue: connection?.keyID)
+        // Editing: empty passphrase field means "keep the stored one".
+        _keyPassphrase = State(initialValue: "")
+        _desktopAccess = State(initialValue: connection?.desktopAccess ?? false)
         _jumpHostID = State(initialValue: connection?.jumpHostID)
         _group = State(initialValue: connection?.group ?? "")
         _encoding = State(initialValue: connection?.encoding ?? .utf8)
@@ -60,6 +67,12 @@ struct ConnectionEditView: View {
     private var hasStoredIdentityPassword: Bool {
         guard let id = connection?.id else { return false }
         return KeychainHelper.identityPassword(for: id) != nil
+    }
+
+    /// Whether a private-key passphrase is already stored for this connection.
+    private var hasStoredKeyPassphrase: Bool {
+        guard let id = connection?.id else { return false }
+        return KeychainHelper.keyPassphrase(for: id) != nil
     }
 
     private var canSave: Bool {
@@ -186,6 +199,12 @@ struct ConnectionEditView: View {
                             }
                         }
                         SecureField(
+                            hasStoredKeyPassphrase
+                                ? L("私钥密码（留空保持不变）")
+                                : L("私钥密码（可选，如密钥未加密可留空）"),
+                            text: $keyPassphrase
+                        )
+                        SecureField(
                             connection == nil ? L("密码（可选，作为回退）") : L("密码（可选，留空保持不变）"),
                             text: $password
                         )
@@ -195,6 +214,19 @@ struct ConnectionEditView: View {
                 } footer: {
                     if authMode == .key {
                         Text(L("密钥认证失败时，可回退使用该密码登录。"))
+                    }
+                }
+
+                Section {
+                    Toggle(L("作为桌面访问"), isOn: $desktopAccess)
+                } footer: {
+                    if desktopAccess {
+                        HStack(spacing: 0) {
+                            Text(L("需要目标主机安装sshdesk服务，"))
+                            Link(destination: URL(string: "https://github.com/rarnu/sshdesk-go")!) {
+                                Text(L("点击查看详情")).underline()
+                            }
+                        }
                     }
                 }
 
@@ -237,6 +269,18 @@ struct ConnectionEditView: View {
                     TextField(L("备注"), text: $notes, axis: .vertical)
                         .lineLimit(2...4)
                 }
+
+                // 测试当前表单值（不必先保存）；校验失败也会在 sheet 里逐步
+                // 展示原因，所以这里不随 canSave 禁用。
+                Section {
+                    Button {
+                        testInput = makeTestInput()
+                    } label: {
+                        Label(L("测试连接"), systemImage: "bolt.horizontal.circle")
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .foregroundStyle(.teal)
+                    }
+                }
             }
             .navigationTitle(connection == nil ? L("新增连接") : L("编辑连接"))
             .navigationBarTitleDisplayMode(.inline)
@@ -261,7 +305,27 @@ struct ConnectionEditView: View {
                     self.keyID = nil
                 }
             }
+            .sheet(item: $testInput) { input in
+                TestConnectionView(input: input)
+            }
         }
+    }
+
+    /// 把当前表单值打成「测试连接」的输入快照；密码/私钥密码原样传递
+    /// （空串 = 留空），由 ViewModel 按"留空保持已存"语义回落 Keychain。
+    private func makeTestInput() -> TestConnectionInput {
+        TestConnectionInput(
+            existingID: connection?.id,
+            host: host,
+            portText: port,
+            username: username,
+            authMode: authMode,
+            keyID: authMode == .key ? keyID : nil,
+            formPassword: password,
+            formKeyPassphrase: keyPassphrase,
+            desktopAccess: desktopAccess,
+            jumpHostID: jumpHostID
+        )
     }
 
     private func save() {
@@ -278,6 +342,7 @@ struct ConnectionEditView: View {
             existing.username = trimmedUser
             existing.authMode = authMode
             existing.keyID = authMode == .key ? keyID : nil
+            existing.desktopAccess = desktopAccess
             existing.jumpHostID = jumpHostID
             existing.group = group.trimmingCharacters(in: .whitespacesAndNewlines)
             existing.encoding = encoding
@@ -285,6 +350,7 @@ struct ConnectionEditView: View {
             existing.identitySwitchEnabled = identitySwitchEnabled
             existing.identityUsername = identityUsername.trimmingCharacters(in: .whitespacesAndNewlines)
             updateIdentityPassword(for: existing.id)
+            updateKeyPassphrase(for: existing.id)
             store.update(existing, password: passwordUpdate)
         } else {
             var config = SSHConnectionConfig(
@@ -297,11 +363,13 @@ struct ConnectionEditView: View {
             )
             config.authMode = authMode
             config.keyID = authMode == .key ? keyID : nil
+            config.desktopAccess = desktopAccess
             config.jumpHostID = jumpHostID
             config.group = group.trimmingCharacters(in: .whitespacesAndNewlines)
             config.identitySwitchEnabled = identitySwitchEnabled
             config.identityUsername = identityUsername.trimmingCharacters(in: .whitespacesAndNewlines)
             updateIdentityPassword(for: config.id)
+            updateKeyPassphrase(for: config.id)
             store.add(config, password: passwordUpdate)
         }
         dismiss()
@@ -314,6 +382,16 @@ struct ConnectionEditView: View {
             KeychainHelper.deleteIdentityPassword(for: id)
         } else if !identityPassword.isEmpty {
             KeychainHelper.saveIdentityPassword(identityPassword, for: id)
+        }
+    }
+
+    /// Key passphrase semantics mirror the sudo password: non-empty field =
+    /// overwrite, empty = keep; switching to password auth clears it.
+    private func updateKeyPassphrase(for id: UUID) {
+        if authMode != .key {
+            KeychainHelper.deleteKeyPassphrase(for: id)
+        } else if !keyPassphrase.isEmpty {
+            KeychainHelper.saveKeyPassphrase(keyPassphrase, for: id)
         }
     }
 }

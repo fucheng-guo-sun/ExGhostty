@@ -169,7 +169,7 @@ private struct SFTPResponse {
 
 // MARK: - Channel handler
 
-private final class SFTPChannelHandler: ChannelInboundHandler {
+private final class SFTPChannelHandler: ChannelInboundHandler, @unchecked Sendable {
     typealias InboundIn = SSHChannelData
 
     private var inbound = ByteBuffer()

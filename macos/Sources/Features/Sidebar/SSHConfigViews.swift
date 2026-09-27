@@ -35,6 +35,8 @@ struct SSHConfigFormView: View {
     @State private var authMode: SSHAuthMode = .password
     @State private var password = ""
     @State private var keyPath = ""
+    @State private var keyPassphrase = ""
+    @State private var isKeyPassphraseVisible = false
     @State private var connectionMethod: SSHConnectionMethod = .direct
     @State private var jumpHostID: UUID?
     @State private var groupID: UUID?
@@ -76,6 +78,7 @@ struct SSHConfigFormView: View {
             _authMode = State(initialValue: conn.authMode)
             _password = State(initialValue: conn.password)
             _keyPath = State(initialValue: conn.keyPath ?? "")
+            _keyPassphrase = State(initialValue: conn.keyPassphrase)
             _connectionMethod = State(initialValue: conn.connectionMethod)
             _jumpHostID = State(initialValue: conn.jumpHostID)
             _groupID = State(initialValue: conn.groupID)
@@ -263,6 +266,31 @@ struct SSHConfigFormView: View {
                             .font(.system(size: 11))
                             .foregroundColor(appTheme.secondaryForeground)
                     }
+                }
+
+                VStack(alignment: .leading, spacing: 6) {
+                    label("Key Passphrase (optional)".localized)
+                    HStack(spacing: 4) {
+                        if isKeyPassphraseVisible {
+                            TextField("Leave empty if the key has no passphrase".localized, text: $keyPassphrase)
+                                .textFieldStyle(.plain)
+                        } else {
+                            SecureField("Leave empty if the key has no passphrase".localized, text: $keyPassphrase)
+                                .textFieldStyle(.plain)
+                        }
+
+                        Button(action: { isKeyPassphraseVisible.toggle() }) {
+                            Image(systemName: isKeyPassphraseVisible ? "eye.slash" : "eye")
+                                .font(.system(size: 12))
+                                .foregroundColor(appTheme.secondaryForeground)
+                        }
+                        .buttonStyle(.plain)
+                        .help(isKeyPassphraseVisible ? "Hide Password".localized : "Show Password".localized)
+                    }
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 6)
+                    .background(appTheme.controlBackground)
+                    .cornerRadius(8)
                 }
             }
         }
@@ -596,7 +624,7 @@ struct SSHConfigFormView: View {
     }
 
     private var testSignature: String {
-        "\(name)\(host)\(port)\(username)\(authMode.rawValue)\(password)\(keyPath)\(connectionMethod.rawValue)\(jumpHostID?.uuidString ?? "")\(desktopAccess)"
+        "\(name)\(host)\(port)\(username)\(authMode.rawValue)\(password)\(keyPath)\(keyPassphrase)\(connectionMethod.rawValue)\(jumpHostID?.uuidString ?? "")\(desktopAccess)"
     }
 
     private func label(_ text: String) -> some View {
@@ -644,6 +672,7 @@ struct SSHConfigFormView: View {
             authMode: authMode,
             password: password,
             keyPath: keyPath.isEmpty ? nil : keyPath,
+            keyPassphrase: keyPassphrase,
             connectionMethod: connectionMethod,
             jumpHost: jumpHostConnection,
             timeoutMs: UInt32(timeoutMs) ?? 30000,
@@ -684,6 +713,7 @@ struct SSHConfigFormView: View {
     private func save() {
         let portNum = UInt16(port) ?? 22
         let finalKeyPath = authMode == .key ? (keyPath.isEmpty ? nil : keyPath) : nil
+        let finalKeyPassphrase = authMode == .key ? keyPassphrase : ""
         let timeout = UInt32(timeoutMs) ?? 30000
         let heartbeat = UInt32(heartbeatMs) ?? 0
         let conn: SSHConnection
@@ -698,6 +728,7 @@ struct SSHConfigFormView: View {
                 authMode: authMode,
                 password: password,
                 keyPath: finalKeyPath,
+                keyPassphrase: finalKeyPassphrase,
                 connectionMethod: connectionMethod,
                 jumpHostID: connectionMethod == .jumpHost ? jumpHostID : nil,
                 notes: notes,
@@ -721,6 +752,7 @@ struct SSHConfigFormView: View {
                 authMode: authMode,
                 password: password,
                 keyPath: finalKeyPath,
+                keyPassphrase: finalKeyPassphrase,
                 connectionMethod: connectionMethod,
                 jumpHostID: connectionMethod == .jumpHost ? jumpHostID : nil,
                 notes: notes,

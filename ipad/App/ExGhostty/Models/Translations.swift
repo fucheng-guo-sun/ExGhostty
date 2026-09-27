@@ -45,6 +45,8 @@ enum Translations {
         "竖线": "Bar",
         "AI 助手": "AI Assistant",
         "兼容 OpenAI 的 /chat/completions 接口": "Compatible with OpenAI's /chat/completions API",
+        "SSH 会话请求 PTY 时向远端报告的终端类型。":
+            "The terminal type reported to the remote host when an SSH session requests a PTY.",
         "密钥": "Keys",
         "密钥管理": "Key Management",
         "关于": "About",

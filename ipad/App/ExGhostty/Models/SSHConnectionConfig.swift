@@ -69,6 +69,11 @@ struct SSHConnectionConfig: Codable, Identifiable, Hashable {
     /// Target username to switch to.
     var identityUsername: String = ""
 
+    /// When on, the terminal session runs the remote `desktop` command
+    /// instead of a shell (sshdesk remote desktop; requires the sshdesk
+    /// service installed on the target host).
+    var desktopAccess: Bool = false
+
     var displayName: String {
         name.isEmpty ? "\(username)@\(host)" : name
     }
@@ -103,6 +108,7 @@ extension SSHConnectionConfig {
     private enum CodingKeys: String, CodingKey {
         case id, name, host, port, username, authMode, keyID, jumpHostID, group, encoding, notes
         case identitySwitchEnabled, identityUsername
+        case desktopAccess
     }
 
     init(from decoder: Decoder) throws {
@@ -120,6 +126,7 @@ extension SSHConnectionConfig {
         notes = try container.decodeIfPresent(String.self, forKey: .notes) ?? ""
         identitySwitchEnabled = try container.decodeIfPresent(Bool.self, forKey: .identitySwitchEnabled) ?? false
         identityUsername = try container.decodeIfPresent(String.self, forKey: .identityUsername) ?? ""
+        desktopAccess = try container.decodeIfPresent(Bool.self, forKey: .desktopAccess) ?? false
     }
 
     func encode(to encoder: Encoder) throws {
@@ -137,5 +144,6 @@ extension SSHConnectionConfig {
         try container.encode(notes, forKey: .notes)
         try container.encode(identitySwitchEnabled, forKey: .identitySwitchEnabled)
         try container.encode(identityUsername, forKey: .identityUsername)
+        try container.encode(desktopAccess, forKey: .desktopAccess)
     }
 }

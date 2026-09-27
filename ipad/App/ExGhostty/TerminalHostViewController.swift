@@ -103,7 +103,7 @@ final class TerminalHostViewController: UIViewController {
 
     override func viewDidAppear(_ animated: Bool) {
         super.viewDidAppear(animated)
-        terminalView.becomeFirstResponder()
+        _ = terminalView.becomeFirstResponder()
     }
 
     @objc private func appDidBecomeActive() {

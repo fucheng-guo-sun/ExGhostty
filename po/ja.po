@@ -1444,3 +1444,12 @@ msgstr "接続とデスクトップアクセスのテストに合格しました
 
 msgid "Connection test passed, but desktop access test failed: sshdesk service is not available on the target host"
 msgstr "接続テストは合格しましたが、デスクトップアクセステストに失敗しました：ターゲットホストでsshdeskサービスが利用できません"
+
+msgid "Key Passphrase (optional)"
+msgstr "秘密鍵のパスフレーズ（任意）"
+
+msgid "Leave empty if the key has no passphrase"
+msgstr "鍵にパスフレーズがない場合は空のままにしてください"
+
+msgid "Key passphrase provided; using askpass to unlock the key"
+msgstr "パスフレーズが指定されました。askpass で鍵を解除します"

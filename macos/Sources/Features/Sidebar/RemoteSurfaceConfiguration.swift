@@ -135,11 +135,21 @@ enum RemoteSurfaceConfiguration {
             cfg.environmentVariables["GHOSTTY_IDENTITY_PASSWORD"] = identity.sudoPassword ?? ""
         }
 
-        // 密码通过 SSH_ASKPASS 助手提供给 ssh，而不是用 expect 匹配 "password:" 提示：
-        // 当服务器同时接受本地密钥时，密钥认证先行成功，根本不会出现密码提示，
-        // expect 会空等整个 timeout（15 秒），表现为"连接很慢"。
+        // 密码/私钥 passphrase 通过 SSH_ASKPASS 助手提供给 ssh，而不是用 expect 匹配
+        // "password:" 提示：当服务器同时接受本地密钥时，密钥认证先行成功，根本不会出现
+        // 密码提示，expect 会空等整个 timeout（15 秒），表现为"连接很慢"。
         // askpass 方式下密钥/密码两种认证路径都无需等待。
-        let useAskpass = conn.authMode == .password && !conn.password.isEmpty
+        // 密钥登录且私钥带 passphrase 时同样走 askpass（ssh 解锁私钥的提示也由 askpass 应答）。
+        let useAskpass: Bool
+        let askpassSecret: String
+        switch conn.authMode {
+        case .password:
+            useAskpass = !conn.password.isEmpty
+            askpassSecret = conn.password
+        case .key:
+            useAskpass = !conn.keyPassphrase.isEmpty
+            askpassSecret = conn.keyPassphrase
+        }
         if useAskpass {
             let askpassURL = FileManager.default.temporaryDirectory
                 .appendingPathComponent("ghostty_ssh_askpass.sh")
@@ -151,7 +161,7 @@ enum RemoteSurfaceConfiguration {
             try? FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: askpassURL.path)
             cfg.environmentVariables["SSH_ASKPASS"] = askpassURL.path
             cfg.environmentVariables["SSH_ASKPASS_REQUIRE"] = "force"
-            cfg.environmentVariables["GHOSTTY_ASKPASS_PASSWORD"] = conn.password
+            cfg.environmentVariables["GHOSTTY_ASKPASS_PASSWORD"] = askpassSecret
         }
 
         // 用 expect 包装，实现断线后按任意键重连。

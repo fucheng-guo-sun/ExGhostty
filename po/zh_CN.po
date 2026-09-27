@@ -1594,3 +1594,12 @@ msgstr "连接与桌面访问测试通过（sshdesk 服务可用）"
 
 msgid "Connection test passed, but desktop access test failed: sshdesk service is not available on the target host"
 msgstr "连接测试通过，但桌面访问测试失败：目标主机上的 sshdesk 服务不可用"
+
+msgid "Key Passphrase (optional)"
+msgstr "私钥密码（可选）"
+
+msgid "Leave empty if the key has no passphrase"
+msgstr "如果私钥没有密码，请留空"
+
+msgid "Key passphrase provided; using askpass to unlock the key"
+msgstr "已提供私钥密码；将使用 askpass 解锁私钥"

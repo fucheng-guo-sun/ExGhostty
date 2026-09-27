@@ -43,6 +43,7 @@ final class ConnectionStore: ObservableObject {
         connections.removeAll { $0.id == config.id }
         KeychainHelper.deletePassword(for: config.id)
         KeychainHelper.deleteIdentityPassword(for: config.id)
+        KeychainHelper.deleteKeyPassphrase(for: config.id)
         save()
     }
 

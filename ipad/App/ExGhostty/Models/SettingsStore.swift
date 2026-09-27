@@ -55,6 +55,11 @@ final class SettingsStore: ObservableObject {
         didSet { defaults.set(terminalEditor, forKey: "terminal.editor") }
     }
 
+    /// TERM value requested when an SSH session allocates its PTY.
+    @Published var terminalType: String {
+        didSet { defaults.set(terminalType, forKey: "terminal.type") }
+    }
+
     init() {
         self.aiEndpoint = defaults.string(forKey: "ai.endpoint") ?? "https://api.openai.com/v1"
         self.aiAPIKey = defaults.string(forKey: "ai.apikey") ?? ""
@@ -67,5 +72,6 @@ final class SettingsStore: ObservableObject {
         // Bool 键未写入过时应默认为 true，不能用 ?? false。
         self.terminalCursorBlink = defaults.object(forKey: "terminal.cursorBlink") as? Bool ?? true
         self.terminalEditor = defaults.string(forKey: "terminal.editor") ?? "vim"
+        self.terminalType = defaults.string(forKey: "terminal.type") ?? "xterm-256color"
     }
 }
